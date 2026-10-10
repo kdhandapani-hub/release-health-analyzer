@@ -65,3 +65,19 @@ Fixes for the Event Stream Health tab (and apply the axis fix app-wide):
 Then show me the tab with the date range set to Oct 9 only.
 
 Outcome: Added horizontal date-aware axes across Overview and Event Stream charts, rounded displayed average lag, changed the heatmap scale to dark-neutral/amber/red, and showed Event Stream with Oct 9 selected while retaining the full-range default.
+
+## Prompt
+Build tab 4 (Database Health) per SPEC.md section 4.2:
+- DB time by connection user: split by caller type (API vs Consumer) per service, as a stacked bar or grouped bar (total elapsed time = executions × avg_elapsed_ms, shown in seconds).
+- Top SQL table: sql_id, db_user(s), sql_type, executions, avg elapsed (ms), max elapsed (ms), top wait class, and status.
+- Elapsed-time trend per SQL ID over time (ms), with the top 5 SQL by elapsed time shown and the rest hidden by default.
+- Wait class breakdown over time (% of DB time by wait class, stacked area).
+- Plan change detection: a table flagging any SQL whose plan_hash_value changed in the selected range AND whose avg elapsed time regressed. Show sql_id, old plan, new plan, change time, elapsed before → after (ms), and regression factor (e.g., 7.2x).
+- Add vertical change-event markers (from change_events.csv, labeled with change_id) on the elapsed-time and wait-class charts.
+
+Also fix the Overview Database section: add a "Slowest SQL elapsed (ms)" card showing the worst sql_id, and plot slowest-SQL elapsed alongside the average in the Overview database trend so a 7x regression is obvious.
+
+Consistency: use the shared analysis/ thresholds module for DB elapsed-time warning/critical levels, the same green/amber/red status colors, and the same adaptive horizontal x-axis labels as the other tabs. Respect all sidebar filters, including Caller type and DB instance. Keep logic in analysis/ and the view in views/.
+
+## Outcome
+Built the filtered Database Health tab with DB-time bars, SQL summary/trends, wait-share area, event markers, and plan-regression detection; added the Overview slowest-SQL KPI/trend. Verified PAYQRY01’s 7.7× regression, filter behavior, and clean app rendering.

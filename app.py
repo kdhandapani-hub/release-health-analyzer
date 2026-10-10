@@ -8,6 +8,7 @@ import streamlit as st
 from analysis.filters import current_and_baseline
 from data.loader import load_datasets
 from views.api_test_results import render_api_test_results
+from views.database_health import render_database_health
 from views.event_stream_health import render_event_stream_health
 from views.overview import render_overview
 
@@ -186,6 +187,16 @@ with tabs[1]:
 with tabs[2]:
     render_event_stream_health(current["kafka"], start_day, end_day)
 
-for tab in tabs[3:]:
+with tabs[3]:
+    render_database_health(
+        current["db"],
+        datasets["changes"],
+        start_day,
+        end_day,
+        selected_event_ids=selected_events,
+        baseline_db=baseline["db"] if selected_events else None,
+    )
+
+for tab in tabs[4:]:
     with tab:
         st.info("Coming soon")

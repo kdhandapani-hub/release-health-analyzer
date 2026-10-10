@@ -10,6 +10,11 @@ KAFKA_LAG_CRITICAL_MESSAGES = 5000
 KAFKA_ERROR_RATE_WARNING_PCT = 0.5
 KAFKA_ERROR_RATE_CRITICAL_PCT = 3.0
 
+DB_ELAPSED_WARNING_MS = 200.0
+DB_ELAPSED_CRITICAL_MS = 500.0
+DB_ACTIVE_SESSIONS_WARNING = 4.0
+DB_ACTIVE_SESSIONS_CRITICAL = 8.0
+
 STATUS_COLORS = {
     "healthy": "#22c55e",
     "warning": "#f59e0b",
@@ -50,6 +55,43 @@ def classify_messaging_status(
     ) or (
         error_rate_pct is not None
         and error_rate_pct >= KAFKA_ERROR_RATE_WARNING_PCT
+    ):
+        return "warning"
+    return "healthy"
+
+
+def classify_database_elapsed(elapsed_ms: float | None) -> str:
+    """Classify a SQL elapsed-time observation using shared DB thresholds."""
+    if elapsed_ms is None:
+        return "unavailable"
+    if elapsed_ms >= DB_ELAPSED_CRITICAL_MS:
+        return "critical"
+    if elapsed_ms >= DB_ELAPSED_WARNING_MS:
+        return "warning"
+    return "healthy"
+
+
+def classify_database_status(
+    avg_elapsed_ms: float | None,
+    active_sessions: float | None,
+    max_sql_elapsed_ms: float | None,
+) -> str:
+    """Classify overall DB health from elapsed time and active sessions."""
+    if any(
+        value is None
+        for value in (avg_elapsed_ms, active_sessions, max_sql_elapsed_ms)
+    ):
+        return "unavailable"
+    if (
+        avg_elapsed_ms >= DB_ELAPSED_CRITICAL_MS
+        or active_sessions >= DB_ACTIVE_SESSIONS_CRITICAL
+        or max_sql_elapsed_ms >= DB_ELAPSED_CRITICAL_MS
+    ):
+        return "critical"
+    if (
+        avg_elapsed_ms >= DB_ELAPSED_WARNING_MS
+        or active_sessions >= DB_ACTIVE_SESSIONS_WARNING
+        or max_sql_elapsed_ms >= DB_ELAPSED_WARNING_MS
     ):
         return "warning"
     return "healthy"

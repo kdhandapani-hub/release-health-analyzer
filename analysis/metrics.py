@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import pandas as pd
 
-from analysis.thresholds import classify_api_pass_rate, classify_messaging_status
+from analysis.thresholds import (
+    classify_api_pass_rate,
+    classify_database_status,
+    classify_messaging_status,
+)
 
 
 def summarize(
@@ -19,6 +23,7 @@ def summarize(
         "kafka_avg_error_rate": None,
         "db_avg_elapsed": None,
         "db_max_sql_elapsed": None,
+        "db_slowest_sql_id": None,
         "db_top_wait_class": None,
         "db_active_sessions": None,
     }
@@ -34,6 +39,8 @@ def summarize(
     if not db.empty:
         summary["db_avg_elapsed"] = float(db["avg_elapsed_ms"].mean())
         summary["db_max_sql_elapsed"] = float(db["avg_elapsed_ms"].max())
+        slowest_row = db.loc[db["avg_elapsed_ms"].idxmax()]
+        summary["db_slowest_sql_id"] = str(slowest_row["sql_id"])
         wait_time_by_class = db.groupby("top_wait_class")["avg_elapsed_ms"].sum()
         summary["db_top_wait_class"] = str(wait_time_by_class.idxmax())
         summary["db_active_sessions"] = float(db["active_sessions"].mean())
@@ -51,16 +58,8 @@ def health_for_layer(layer: str, metrics: dict) -> str:
             metrics["kafka_avg_error_rate"],
         )
 
-    values = (
+    return classify_database_status(
         metrics["db_avg_elapsed"],
         metrics["db_active_sessions"],
         metrics["db_max_sql_elapsed"],
     )
-    if any(value is None for value in values):
-        return "unavailable"
-    elapsed, sessions, max_sql_elapsed = values
-    if elapsed >= 500 or sessions >= 8 or max_sql_elapsed >= 500:
-        return "critical"
-    if elapsed >= 200 or sessions >= 4 or max_sql_elapsed >= 200:
-        return "warning"
-    return "healthy"

@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analysis.metrics import health_for_layer, summarize
+from analysis.thresholds import DB_ELAPSED_CRITICAL_MS, DB_ELAPSED_WARNING_MS, STATUS_COLORS
 from views.time_axes import apply_time_axis
 
 
@@ -75,6 +76,75 @@ def _trend_chart(
         yaxis_title=y_title,
         showlegend=False,
     )
+    apply_time_axis(figure, start_day, end_day)
+    figure.update_yaxes(gridcolor="rgba(148,163,184,0.14)", rangemode="tozero")
+    return figure
+
+
+def _database_trend_chart(db, start_day, end_day):
+    if db.empty:
+        return None
+    hourly = db.assign(hour=db["timestamp"].dt.floor("h"))
+    average = (
+        hourly.groupby("hour", as_index=False)["avg_elapsed_ms"]
+        .mean()
+        .sort_values("hour", kind="stable")
+    )
+    slowest_indices = hourly.groupby("hour")["avg_elapsed_ms"].idxmax()
+    slowest = (
+        hourly.loc[slowest_indices, ["hour", "sql_id", "avg_elapsed_ms"]]
+        .sort_values("hour", kind="stable")
+    )
+    figure = go.Figure()
+    figure.add_trace(
+        go.Scatter(
+            x=average["hour"],
+            y=average["avg_elapsed_ms"],
+            mode="lines+markers",
+            name="Average SQL",
+            line={"color": "#aa92ff", "width": 2.5},
+            marker={"size": 5},
+            hovertemplate="%{x|%b %d, %H:%M} UTC<br>Average: %{y:.1f} ms<extra></extra>",
+        )
+    )
+    figure.add_trace(
+        go.Scatter(
+            x=slowest["hour"],
+            y=slowest["avg_elapsed_ms"],
+            customdata=slowest["sql_id"],
+            mode="lines+markers",
+            name="Slowest SQL (per hour)",
+            line={"color": STATUS_COLORS["critical"], "width": 2.5},
+            marker={"size": 5},
+            hovertemplate=(
+                "%{x|%b %d, %H:%M} UTC<br>"
+                "SQL ID: %{customdata}<br>Elapsed: %{y:.1f} ms<extra></extra>"
+            ),
+        )
+    )
+    figure.update_layout(
+        title="Database elapsed time by hour",
+        height=300,
+        margin={"l": 8, "r": 8, "t": 46, "b": 8},
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        font={"color": "#d9e2f1"},
+        xaxis_title="Time (UTC)",
+        yaxis_title="Elapsed per execution (ms)",
+        legend_title_text="Series",
+    )
+    for threshold, status, label in (
+        (DB_ELAPSED_WARNING_MS, "warning", f"Warning {DB_ELAPSED_WARNING_MS:g} ms"),
+        (DB_ELAPSED_CRITICAL_MS, "critical", f"Critical {DB_ELAPSED_CRITICAL_MS:g} ms"),
+    ):
+        figure.add_hline(
+            y=threshold,
+            line_dash="dash",
+            line_color=STATUS_COLORS[status],
+            annotation_text=label,
+            annotation_position="top left",
+            annotation_font_color=STATUS_COLORS[status],
+        )
     apply_time_axis(figure, start_day, end_day)
     figure.update_yaxes(gridcolor="rgba(148,163,184,0.14)", rangemode="tozero")
     return figure
@@ -170,7 +240,7 @@ def render_overview(current, baseline, start_day, end_day):
     _layer_card(
         "Database",
         health_for_layer("Database", current_metrics),
-        3,
+        4,
         [
             (
                 "Average SQL elapsed (ms)",
@@ -179,6 +249,21 @@ def render_overview(current, baseline, start_day, end_day):
                 _delta(
                     current_metrics["db_avg_elapsed"],
                     baseline_metrics["db_avg_elapsed"],
+                    "ms",
+                    0,
+                ),
+                "inverse",
+            ),
+            (
+                "Slowest SQL elapsed (ms)",
+                (
+                    f'{current_metrics["db_slowest_sql_id"]} · '
+                    f'{current_metrics["db_max_sql_elapsed"]:,.0f} ms'
+                )
+                if current_metrics["db_max_sql_elapsed"] is not None else None,
+                _delta(
+                    current_metrics["db_max_sql_elapsed"],
+                    baseline_metrics["db_max_sql_elapsed"],
                     "ms",
                     0,
                 ),
@@ -209,7 +294,9 @@ def render_overview(current, baseline, start_day, end_day):
     chart_columns = st.columns(3)
     for column, (key, value, title, axis, aggregate, color, *args) in zip(chart_columns, chart_specs):
         with column:
-            if aggregate == "quantile":
+            if key == "db":
+                figure = _database_trend_chart(current[key], start_day, end_day)
+            elif aggregate == "quantile":
                 frame = current[key].copy()
                 if frame.empty:
                     figure = None
