@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analysis.metrics import health_for_layer, summarize
+from views.time_axes import apply_time_axis
 
 
 HEALTH_LABELS = {
@@ -46,7 +47,9 @@ def _layer_card(title, health, columns, content):
                 _metric(name, value, delta, color)
 
 
-def _trend_chart(frame, value_column, title, y_title, aggregate, color):
+def _trend_chart(
+    frame, value_column, title, y_title, aggregate, color, start_day, end_day
+):
     if frame.empty:
         return None
     hourly = frame.assign(hour=frame["timestamp"].dt.floor("h"))
@@ -72,12 +75,12 @@ def _trend_chart(frame, value_column, title, y_title, aggregate, color):
         yaxis_title=y_title,
         showlegend=False,
     )
-    figure.update_xaxes(showgrid=False)
+    apply_time_axis(figure, start_day, end_day)
     figure.update_yaxes(gridcolor="rgba(148,163,184,0.14)", rangemode="tozero")
     return figure
 
 
-def render_overview(current, baseline):
+def render_overview(current, baseline, start_day, end_day):
     current_metrics = summarize(current["api"], current["kafka"], current["db"])
     baseline_metrics = summarize(baseline["api"], baseline["kafka"], baseline["db"])
 
@@ -222,10 +225,19 @@ def render_overview(current, baseline):
                         axis,
                         "mean",
                         color,
+                        start_day,
+                        end_day,
                     )
             else:
                 figure = _trend_chart(
-                    current[key], value, title, axis, aggregate, color
+                    current[key],
+                    value,
+                    title,
+                    axis,
+                    aggregate,
+                    color,
+                    start_day,
+                    end_day,
                 )
             if figure is None:
                 st.caption(f"{title}: no matching data")

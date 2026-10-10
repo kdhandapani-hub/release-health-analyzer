@@ -1,5 +1,7 @@
 """Release Health Analyzer — Streamlit entry point."""
 
+from datetime import date
+
 import pandas as pd
 import streamlit as st
 
@@ -78,12 +80,21 @@ all_timestamps = pd.concat(
 )
 minimum_day = all_timestamps.min().date()
 maximum_day = all_timestamps.max().date()
+default_date_range = (minimum_day, maximum_day)
+requested_day = st.query_params.get("day")
+if requested_day:
+    try:
+        preview_day = date.fromisoformat(requested_day)
+    except ValueError:
+        preview_day = None
+    if preview_day is not None and minimum_day <= preview_day <= maximum_day:
+        default_date_range = (preview_day, preview_day)
 
 with st.sidebar:
     st.header("Filters")
     selected_dates = st.date_input(
         "Date range",
-        value=(minimum_day, maximum_day),
+        value=default_date_range,
         min_value=minimum_day,
         max_value=maximum_day,
         help="Defaults to the full date range available in the generated data.",
@@ -153,26 +164,27 @@ current, baseline = current_and_baseline(
     selections,
 )
 
-tabs = st.tabs(
-    [
-        "Overview",
-        "API Test Results",
-        "Event Stream Health",
-        "Database Health",
-        "Infrastructure Health",
-        "Root Cause Correlation",
-        "AI Insights",
-    ]
-)
+tab_names = [
+    "Overview",
+    "API Test Results",
+    "Event Stream Health",
+    "Database Health",
+    "Infrastructure Health",
+    "Root Cause Correlation",
+    "AI Insights",
+]
+requested_view = st.query_params.get("view", "Overview")
+default_view = requested_view if requested_view in tab_names else "Overview"
+tabs = st.tabs(tab_names, default=default_view)
 
 with tabs[0]:
-    render_overview(current, baseline)
+    render_overview(current, baseline, start_day, end_day)
 
 with tabs[1]:
     render_api_test_results(current["api"])
 
 with tabs[2]:
-    render_event_stream_health(current["kafka"])
+    render_event_stream_health(current["kafka"], start_day, end_day)
 
 for tab in tabs[3:]:
     with tab:

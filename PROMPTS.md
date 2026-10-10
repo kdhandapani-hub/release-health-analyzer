@@ -56,3 +56,12 @@ Consistency with the API tab:
 All charts respect the sidebar filters, with titles, axis labels and units. Use horizontal x-axis time labels every 6 hours. Keep logic in analysis/ and the view in views/.
 
 Outcome: Built Event Stream Health with filtered lag heatmap, topic throughput/error-rate trends, and a status-colored consumer-group table; centralized messaging thresholds and verified 6-hour chart ticks and app rendering.
+
+## Prompt
+Fixes for the Event Stream Health tab (and apply the axis fix app-wide):
+1. X-axis time labels are overlapping and unreadable. Make them horizontal and adapt tick spacing to the selected range: every 3–6 hours for a 1-day range, one tick per day (e.g. "Oct 3") for multi-day ranges. Apply this to all time-series charts in every tab.
+2. Round avg lag to whole messages in the top-lagging table.
+3. Heatmap color scale: replace the rainbow scale with a sequential scale from dark neutral (0) through amber (warning threshold) to the same red used for critical status (at the critical threshold). Low lag should stay dark and quiet.
+Then show me the tab with the date range set to Oct 9 only.
+
+Outcome: Added horizontal date-aware axes across Overview and Event Stream charts, rounded displayed average lag, changed the heatmap scale to dark-neutral/amber/red, and showed Event Stream with Oct 9 selected while retaining the full-range default.

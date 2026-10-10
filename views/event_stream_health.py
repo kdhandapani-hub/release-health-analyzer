@@ -14,8 +14,10 @@ from analysis.thresholds import (
     KAFKA_ERROR_RATE_CRITICAL_PCT,
     KAFKA_ERROR_RATE_WARNING_PCT,
     KAFKA_LAG_CRITICAL_MESSAGES,
+    KAFKA_LAG_WARNING_MESSAGES,
     STATUS_COLORS,
 )
+from views.time_axes import apply_time_axis
 
 
 CHART_LAYOUT = {
@@ -24,22 +26,7 @@ CHART_LAYOUT = {
     "font": {"color": "#d9e2f1"},
     "margin": {"l": 12, "r": 18, "t": 55, "b": 18},
 }
-SIX_HOURS_MS = 6 * 60 * 60 * 1000
-
-
-def _time_axis(figure):
-    figure.update_xaxes(
-        title="Time (UTC)",
-        type="date",
-        tickmode="linear",
-        dtick=SIX_HOURS_MS,
-        tickformat="%b %d<br>%H:%M",
-        tickangle=-45,
-        showgrid=False,
-    )
-
-
-def _lag_heatmap(kafka):
+def _lag_heatmap(kafka, start_day, end_day):
     matrix = lag_heatmap_matrix(kafka)
     if matrix.empty:
         st.info("No lag samples match these filters.")
@@ -54,12 +41,27 @@ def _lag_heatmap(kafka):
             zmax=KAFKA_LAG_CRITICAL_MESSAGES,
             colorscale=[
                 [0.0, "#101a2b"],
-                [0.12, "#1d4ed8"],
-                [0.4, "#38bdf8"],
-                [0.72, "#f59e0b"],
+                [0.035, "#1f2937"],
+                [
+                    KAFKA_LAG_WARNING_MESSAGES / KAFKA_LAG_CRITICAL_MESSAGES,
+                    STATUS_COLORS["warning"],
+                ],
+                [0.42, "#f97316"],
                 [1.0, STATUS_COLORS["critical"]],
             ],
-            colorbar={"title": "Lag (messages)"},
+            colorbar={
+                "title": "Lag (messages)",
+                "tickvals": [
+                    0,
+                    KAFKA_LAG_WARNING_MESSAGES,
+                    KAFKA_LAG_CRITICAL_MESSAGES,
+                ],
+                "ticktext": [
+                    "0",
+                    f"Warning {KAFKA_LAG_WARNING_MESSAGES:,}",
+                    f"Critical {KAFKA_LAG_CRITICAL_MESSAGES:,}",
+                ],
+            },
             hovertemplate=(
                 "Time: %{x|%b %d, %H:%M} UTC<br>"
                 "Topic / partition: %{y}<br>"
@@ -74,16 +76,17 @@ def _lag_heatmap(kafka):
         xaxis_title="Time (UTC)",
         yaxis_title="Topic / partition",
     )
-    _time_axis(figure)
+    apply_time_axis(figure, start_day, end_day)
     figure.update_yaxes(automargin=True, showgrid=False)
     st.caption(
-        f"Heatmap scale runs from neutral/cool to critical red at "
-        f"{KAFKA_LAG_CRITICAL_MESSAGES:,} messages; higher lag saturates at red."
+        f"Low lag stays dark; the scale reaches warning amber at "
+        f"{KAFKA_LAG_WARNING_MESSAGES:,} and critical red at "
+        f"{KAFKA_LAG_CRITICAL_MESSAGES:,} messages."
     )
     st.plotly_chart(figure, width="stretch")
 
 
-def _throughput_chart(kafka):
+def _throughput_chart(kafka, start_day, end_day):
     throughput = throughput_by_topic(kafka)
     if throughput.empty:
         st.info("No throughput samples match these filters.")
@@ -107,7 +110,7 @@ def _throughput_chart(kafka):
         rangemode="tozero",
         gridcolor="rgba(148,163,184,0.14)",
     )
-    _time_axis(figure)
+    apply_time_axis(figure, start_day, end_day)
     st.plotly_chart(figure, width="stretch")
 
 
@@ -128,7 +131,7 @@ def _consumer_group_table(kafka):
         }
     )
     display["Max lag (messages)"] = display["Max lag (messages)"].round(0).astype(int)
-    display["Avg lag (messages)"] = display["Avg lag (messages)"].round(1)
+    display["Avg lag (messages)"] = display["Avg lag (messages)"].round(0).astype(int)
     display["Peak time (UTC)"] = display["Peak time (UTC)"].dt.strftime(
         "%Y-%m-%d %H:%M"
     )
@@ -141,7 +144,7 @@ def _consumer_group_table(kafka):
     st.dataframe(styled, hide_index=True, width="stretch")
 
 
-def _error_rate_chart(kafka):
+def _error_rate_chart(kafka, start_day, end_day):
     error_rates = error_rate_by_topic(kafka)
     if error_rates.empty:
         st.info("No error-rate samples match these filters.")
@@ -191,21 +194,21 @@ def _error_rate_chart(kafka):
         range=[0, y_max * 1.1],
         gridcolor="rgba(148,163,184,0.14)",
     )
-    _time_axis(figure)
+    apply_time_axis(figure, start_day, end_day)
     st.plotly_chart(figure, width="stretch")
 
 
-def render_event_stream_health(kafka):
+def render_event_stream_health(kafka, start_day, end_day):
     if kafka.empty:
         st.info(
             "No event-stream metrics match these filters. Adjust the sidebar filters to see results."
         )
         return
 
-    _lag_heatmap(kafka)
+    _lag_heatmap(kafka, start_day, end_day)
     st.subheader("Throughput")
-    _throughput_chart(kafka)
+    _throughput_chart(kafka, start_day, end_day)
     st.subheader("Top lagging consumer groups")
     _consumer_group_table(kafka)
     st.subheader("Error rate")
-    _error_rate_chart(kafka)
+    _error_rate_chart(kafka, start_day, end_day)
