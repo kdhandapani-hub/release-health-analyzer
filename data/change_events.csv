@@ -1,0 +1,5 @@
+timestamp,change_id,change_type,description
+2026-10-01T09:00:00Z,R2026.10.01,app_release,Application release 2026.10.01
+2026-10-05T09:00:00Z,R2026.10.05,app_release,Application release 2026.10.05
+2026-10-09T06:00:00Z,R2026.10.09,app_release,Application release; no immediate degradation observed
+2026-10-09T10:00:00Z,DBPATCH-1009,db_patch,Production database patch; payments query plan regressed
