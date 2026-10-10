@@ -5,6 +5,9 @@ from __future__ import annotations
 import pandas as pd
 
 
+API_PASS_RATE_SLA_PCT = 98.0
+API_PASS_RATE_RED_BELOW_PCT = 95.0
+
 PASS_RATE_COLUMNS = ["group", "run_count", "pass_rate_pct"]
 FAILURE_COLUMNS = ["failure_reason", "failed_runs", "failure_pct"]
 RELEASE_COLUMNS = [
@@ -15,6 +18,17 @@ RELEASE_COLUMNS = [
     "p95_latency_ms",
     "p95_delta_ms",
 ]
+
+
+def api_pass_rate_status(pass_rate_pct: float | None) -> str:
+    """Classify an API pass rate using the shared SLA and status cutoffs."""
+    if pass_rate_pct is None:
+        return "unavailable"
+    if pass_rate_pct >= API_PASS_RATE_SLA_PCT:
+        return "healthy"
+    if pass_rate_pct >= API_PASS_RATE_RED_BELOW_PCT:
+        return "warning"
+    return "critical"
 
 
 def _pass_rate_by(api: pd.DataFrame, dimension: str) -> pd.DataFrame:

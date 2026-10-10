@@ -35,3 +35,8 @@ Then build tab 2 (API Test Results) per SPEC.md section 4.2:
 All charts must respect the sidebar filters, have titles and axis labels with units. Keep logic in analysis/ and the view in views.
 
 Outcome: Set the default range to Oct 1–14, 2026 and built the filtered API Test Results tab with pass-rate, latency percentile, failure-reason, and release comparison views; verified aggregations and zero Streamlit exceptions.
+
+## Prompt
+On the API Test Results tab, add a dashed reference line at the 98% SLA labeled "SLA 98%" on both pass-rate charts, and color bars by status: green ≥98%, amber 95–98%, red <95%. Define the SLA and threshold values once in analysis/ and reuse them for the Overview health badges so status is consistent across the app.
+
+Outcome: Centralized the 98% SLA and 95% warning cutoff, reused the pass-rate classifier for API bar colors and Overview health, added dashed SLA lines to both charts, and verified threshold boundaries and app rendering.
