@@ -1,12 +1,11 @@
 """Release Health Analyzer — Streamlit entry point."""
 
-from datetime import date
-
 import pandas as pd
 import streamlit as st
 
 from analysis.filters import current_and_baseline
 from data.loader import load_datasets
+from views.api_test_results import render_api_test_results
 from views.overview import render_overview
 
 
@@ -78,21 +77,15 @@ all_timestamps = pd.concat(
 )
 minimum_day = all_timestamps.min().date()
 maximum_day = all_timestamps.max().date()
-showcase_day = date(2026, 10, 9)
-default_day = (
-    showcase_day
-    if minimum_day <= showcase_day <= maximum_day
-    else maximum_day
-)
 
 with st.sidebar:
     st.header("Filters")
     selected_dates = st.date_input(
         "Date range",
-        value=(default_day, default_day),
+        value=(minimum_day, maximum_day),
         min_value=minimum_day,
         max_value=maximum_day,
-        help="The default focuses on the day-9 database incident.",
+        help="Defaults to the full date range available in the generated data.",
     )
     if isinstance(selected_dates, (tuple, list)):
         if len(selected_dates) == 2:
@@ -100,7 +93,7 @@ with st.sidebar:
         elif len(selected_dates) == 1:
             start_day = end_day = selected_dates[0]
         else:
-            start_day = end_day = default_day
+            start_day, end_day = minimum_day, maximum_day
     else:
         start_day = end_day = selected_dates
 
@@ -174,6 +167,9 @@ tabs = st.tabs(
 with tabs[0]:
     render_overview(current, baseline)
 
-for tab in tabs[1:]:
+with tabs[1]:
+    render_api_test_results(current["api"])
+
+for tab in tabs[2:]:
     with tab:
         st.info("Coming soon")

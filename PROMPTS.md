@@ -23,3 +23,15 @@ Then build the app. Create app.py with Streamlit, pandas and Plotly, following S
 - Configure the Replit run command so the Run button launches the Streamlit app and it shows in Preview.
 
 Outcome: Regenerated data with varied baseline payments pass rates, built and verified the filtered Streamlit Overview and placeholder tabs, and configured the Run button and Preview workflow.
+
+## Prompt
+Change the default date range to the full 14 days.
+
+Then build tab 2 (API Test Results) per SPEC.md section 4.2:
+- Pass rate by service and by endpoint (bar charts, %).
+- Latency distribution with p50/p95/p99 (ms).
+- Failure reasons breakdown (count and %).
+- Release-over-release comparison table: pass rate and p95 per release_tag, with delta vs. the previous release.
+All charts must respect the sidebar filters, have titles and axis labels with units. Keep logic in analysis/ and the view in views.
+
+Outcome: Set the default range to Oct 1–14, 2026 and built the filtered API Test Results tab with pass-rate, latency percentile, failure-reason, and release comparison views; verified aggregations and zero Streamlit exceptions.
