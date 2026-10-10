@@ -51,7 +51,9 @@ DB_PATCH_AT = datetime(2026, 10, 9, 10, tzinfo=timezone.utc)
 INCIDENT_START = datetime(2026, 10, 9, 11, tzinfo=timezone.utc)
 INCIDENT_END = datetime(2026, 10, 9, 20, tzinfo=timezone.utc)
 API_INCIDENT_START = INCIDENT_START + timedelta(hours=1)
+API_INCIDENT_END = INCIDENT_END + timedelta(hours=1)
 KAFKA_INCIDENT_START = INCIDENT_START + timedelta(hours=2)
+KAFKA_DRAIN_FACTORS = (0.70, 0.40, 0.12)
 
 
 def iso(timestamp: datetime) -> str:
@@ -85,9 +87,18 @@ def generate_api(rng: random.Random) -> list[dict]:
     for hour_index in range(HOURS):
         timestamp = START + timedelta(hours=hour_index)
         for service, endpoints in ENDPOINTS.items():
+            repetitions = 34 if service == "payments" else 8
+            affected = service == "payments" and API_INCIDENT_START <= timestamp < API_INCIDENT_END
+            # 2 failed assertions in 102 baseline payments runs keeps each hourly
+            # baseline close to the specified 97–99% pass rate.
+            baseline_payment_failures = (
+                set(rng.sample(range(len(endpoints) * repetitions), 2))
+                if service == "payments" and not affected
+                else set()
+            )
+            test_index = 0
             for method, endpoint in endpoints:
-                for _ in range(8):
-                    affected = service == "payments" and API_INCIDENT_START <= timestamp < INCIDENT_END
+                for _ in range(repetitions):
                     if affected:
                         # Degradation begins after the DB plan changes, then eases near the end.
                         elapsed_hours = (timestamp - API_INCIDENT_START).total_seconds() / 3600
@@ -98,7 +109,10 @@ def generate_api(rng: random.Random) -> list[dict]:
                         latency = int(clamp(rng.lognormvariate(5.55, 0.24), 90, 900))
                         failure_probability = 0.016
 
-                    failed = rng.random() < failure_probability
+                    if service == "payments" and not affected:
+                        failed = test_index in baseline_payment_failures
+                    else:
+                        failed = rng.random() < failure_probability
                     if failed:
                         if affected:
                             status = rng.choices((500, 503, 504), weights=(0.24, 0.28, 0.48))[0]
@@ -127,11 +141,13 @@ def generate_api(rng: random.Random) -> list[dict]:
                         "failure_reason": reason,
                     })
                     run_number += 1
+                    test_index += 1
     return rows
 
 
 def generate_kafka(rng: random.Random) -> list[dict]:
     rows = []
+    payment_lag_by_partition = {}
     for hour_index in range(HOURS):
         timestamp = START + timedelta(hours=hour_index)
         for topic, consumer_groups in TOPICS.items():
@@ -145,8 +161,17 @@ def generate_kafka(rng: random.Random) -> list[dict]:
                         hours_into = (timestamp - KAFKA_INCIDENT_START).total_seconds() / 3600
                         # The lag accumulates as the consumer's database writes slow down.
                         lag = int(450 + 850 * hours_into + partition * 37 + rng.randint(0, 260))
+                        payment_lag_by_partition[partition] = lag
                         error_rate = round(clamp(rng.gauss(3.5 + 0.55 * hours_into, 0.7), 1.5, 9.0), 3)
                         throughput = max(5.0, rng.gauss(56 - 3.2 * hours_into, 8))
+                    elif (
+                        topic == "payment-events"
+                        and INCIDENT_END <= timestamp < INCIDENT_END + timedelta(hours=len(KAFKA_DRAIN_FACTORS))
+                    ):
+                        hours_after = int((timestamp - INCIDENT_END).total_seconds() / 3600)
+                        previous_lag = payment_lag_by_partition.get(partition, lag)
+                        lag = int(lag + max(0, previous_lag - lag) * KAFKA_DRAIN_FACTORS[hours_after])
+                        payment_lag_by_partition[partition] = lag
 
                     rows.append({
                         "timestamp": iso(timestamp),
@@ -253,7 +278,7 @@ def print_summary(api_rows: list[dict], kafka_rows: list[dict], db_rows: list[di
     api_incident = [
         row for row in api_rows
         if row["service"] == "payments"
-        and INCIDENT_START + timedelta(hours=1) <= datetime.strptime(row["timestamp"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < INCIDENT_END
+        and API_INCIDENT_START <= datetime.strptime(row["timestamp"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc) < API_INCIDENT_END
     ]
     api_before = [
         row for row in api_rows
@@ -302,7 +327,7 @@ def print_summary(api_rows: list[dict], kafka_rows: list[dict], db_rows: list[di
         "wait shifts to User I/O."
     )
     print(
-        f"  12:00–19:00 payments API: pass rate {api_pass_before:.1f}% → "
+        f"  12:00–20:00 payments API: pass rate {api_pass_before:.1f}% → "
         f"{api_pass_incident:.1f}%; p95 latency {api_p95_before:.0f} ms → "
         f"{api_p95_incident:.0f} ms."
     )
