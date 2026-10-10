@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-from analysis.api_metrics import api_pass_rate_status
+from analysis.thresholds import classify_api_pass_rate, classify_messaging_status
 
 
 def summarize(
@@ -43,18 +43,13 @@ def summarize(
 def health_for_layer(layer: str, metrics: dict) -> str:
     """Return healthy, warning, critical, or unavailable for one layer."""
     if layer == "API":
-        return api_pass_rate_status(metrics["api_pass_rate"])
+        return classify_api_pass_rate(metrics["api_pass_rate"])
 
     if layer == "Messaging":
-        values = (metrics["kafka_max_lag"], metrics["kafka_avg_error_rate"])
-        if any(value is None for value in values):
-            return "unavailable"
-        lag, error_rate = values
-        if lag >= 5000 or error_rate >= 3:
-            return "critical"
-        if lag >= 500 or error_rate >= 0.5:
-            return "warning"
-        return "healthy"
+        return classify_messaging_status(
+            metrics["kafka_max_lag"],
+            metrics["kafka_avg_error_rate"],
+        )
 
     values = (
         metrics["db_avg_elapsed"],

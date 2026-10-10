@@ -6,6 +6,7 @@ import streamlit as st
 from analysis.filters import current_and_baseline
 from data.loader import load_datasets
 from views.api_test_results import render_api_test_results
+from views.event_stream_health import render_event_stream_health
 from views.overview import render_overview
 
 
@@ -170,6 +171,9 @@ with tabs[0]:
 with tabs[1]:
     render_api_test_results(current["api"])
 
-for tab in tabs[2:]:
+with tabs[2]:
+    render_event_stream_health(current["kafka"])
+
+for tab in tabs[3:]:
     with tab:
         st.info("Coming soon")

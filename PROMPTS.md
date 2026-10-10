@@ -40,3 +40,19 @@ Outcome: Set the default range to Oct 1–14, 2026 and built the filtered API Te
 On the API Test Results tab, add a dashed reference line at the 98% SLA labeled "SLA 98%" on both pass-rate charts, and color bars by status: green ≥98%, amber 95–98%, red <95%. Define the SLA and threshold values once in analysis/ and reuse them for the Overview health badges so status is consistent across the app.
 
 Outcome: Centralized the 98% SLA and 95% warning cutoff, reused the pass-rate classifier for API bar colors and Overview health, added dashed SLA lines to both charts, and verified threshold boundaries and app rendering.
+
+## Prompt
+Build tab 3 (Event Stream Health) per SPEC.md section 4.2:
+- Lag heatmap: topic/partition (y) × time (x), color = lag in messages.
+- Throughput trend (msgs/sec) per topic over time.
+- Top lagging consumer groups table: max lag, avg lag, and peak time.
+- Error rate (%) by topic over time.
+
+Consistency with the API tab:
+- Define lag and error-rate thresholds (healthy / warning / critical) in the same shared analysis/ thresholds module used for the 98% API SLA, and use them for the Overview Messaging badge too.
+- Use the exact same green / amber / red status colors as the API pass-rate charts for the table status and any threshold lines (e.g., a dashed warning/critical line on the error-rate chart).
+- The heatmap can use a continuous color scale, but it should run from neutral/cool to the same red at the critical lag threshold.
+
+All charts respect the sidebar filters, with titles, axis labels and units. Use horizontal x-axis time labels every 6 hours. Keep logic in analysis/ and the view in views/.
+
+Outcome: Built Event Stream Health with filtered lag heatmap, topic throughput/error-rate trends, and a status-colored consumer-group table; centralized messaging thresholds and verified 6-hour chart ticks and app rendering.

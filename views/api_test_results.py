@@ -4,13 +4,16 @@ import plotly.express as px
 import streamlit as st
 
 from analysis.api_metrics import (
-    API_PASS_RATE_SLA_PCT,
-    api_pass_rate_status,
     failure_reason_breakdown,
     latency_percentiles,
     pass_rate_by_endpoint,
     pass_rate_by_service,
     release_comparison,
+)
+from analysis.thresholds import (
+    API_PASS_RATE_SLA_PCT,
+    STATUS_COLORS,
+    classify_api_pass_rate,
 )
 
 
@@ -20,14 +23,6 @@ CHART_LAYOUT = {
     "font": {"color": "#d9e2f1"},
     "margin": {"l": 8, "r": 20, "t": 55, "b": 12},
 }
-
-PASS_RATE_STATUS_COLORS = {
-    "healthy": "#22c55e",
-    "warning": "#f59e0b",
-    "critical": "#ef4444",
-    "unavailable": "#94a3b8",
-}
-
 
 def _pass_rate_chart(frame, title, group_label):
     figure = px.bar(
@@ -46,7 +41,7 @@ def _pass_rate_chart(frame, title, group_label):
     )
     figure.update_traces(
         marker_color=[
-            PASS_RATE_STATUS_COLORS[api_pass_rate_status(rate)]
+            STATUS_COLORS[classify_api_pass_rate(rate)]
             for rate in frame["pass_rate_pct"]
         ],
         texttemplate="%{x:.1f}%",
