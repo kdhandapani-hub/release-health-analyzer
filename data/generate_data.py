@@ -89,10 +89,10 @@ def generate_api(rng: random.Random) -> list[dict]:
         for service, endpoints in ENDPOINTS.items():
             repetitions = 34 if service == "payments" else 8
             affected = service == "payments" and API_INCIDENT_START <= timestamp < API_INCIDENT_END
-            # 2 failed assertions in 102 baseline payments runs keeps each hourly
-            # baseline close to the specified 97–99% pass rate.
+            # Vary 1–3 failed assertions across 102 baseline payments runs so
+            # hourly pass rates naturally range from about 97.1% to 99.0%.
             baseline_payment_failures = (
-                set(rng.sample(range(len(endpoints) * repetitions), 2))
+                set(rng.sample(range(len(endpoints) * repetitions), rng.randint(1, 3)))
                 if service == "payments" and not affected
                 else set()
             )
