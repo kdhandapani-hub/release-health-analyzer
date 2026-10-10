@@ -1,0 +1,1 @@
+- [Prompt log](prompt-log.md) — append each user prompt and a one-line outcome to `PROMPTS.md`.

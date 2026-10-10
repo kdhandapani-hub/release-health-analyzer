@@ -50,6 +50,8 @@ REGRESSED_PLAN = "1175038842"
 DB_PATCH_AT = datetime(2026, 10, 9, 10, tzinfo=timezone.utc)
 INCIDENT_START = datetime(2026, 10, 9, 11, tzinfo=timezone.utc)
 INCIDENT_END = datetime(2026, 10, 9, 20, tzinfo=timezone.utc)
+API_INCIDENT_START = INCIDENT_START + timedelta(hours=1)
+KAFKA_INCIDENT_START = INCIDENT_START + timedelta(hours=2)
 
 
 def iso(timestamp: datetime) -> str:
@@ -84,11 +86,11 @@ def generate_api(rng: random.Random) -> list[dict]:
         timestamp = START + timedelta(hours=hour_index)
         for service, endpoints in ENDPOINTS.items():
             for method, endpoint in endpoints:
-                for _ in range(2):
-                    affected = service == "payments" and INCIDENT_START <= timestamp < INCIDENT_END
+                for _ in range(8):
+                    affected = service == "payments" and API_INCIDENT_START <= timestamp < INCIDENT_END
                     if affected:
                         # Degradation begins after the DB plan changes, then eases near the end.
-                        elapsed_hours = (timestamp - INCIDENT_START).total_seconds() / 3600
+                        elapsed_hours = (timestamp - API_INCIDENT_START).total_seconds() / 3600
                         severity = 1.0 - 0.22 * max(0, elapsed_hours - 5) / 4
                         latency = int(clamp(rng.lognormvariate(7.45, 0.42) * severity, 500, 12000))
                         failure_probability = 0.30 + 0.12 * severity
@@ -139,8 +141,8 @@ def generate_kafka(rng: random.Random) -> list[dict]:
                     throughput = max(0.1, rng.gauss(82, 12))
                     error_rate = max(0.0, rng.gauss(0.12, 0.08))
 
-                    if topic == "payment-events" and INCIDENT_START + timedelta(hours=2) <= timestamp < INCIDENT_END:
-                        hours_into = (timestamp - (INCIDENT_START + timedelta(hours=2))).total_seconds() / 3600
+                    if topic == "payment-events" and KAFKA_INCIDENT_START <= timestamp < INCIDENT_END:
+                        hours_into = (timestamp - KAFKA_INCIDENT_START).total_seconds() / 3600
                         # The lag accumulates as the consumer's database writes slow down.
                         lag = int(450 + 850 * hours_into + partition * 37 + rng.randint(0, 260))
                         error_rate = round(clamp(rng.gauss(3.5 + 0.55 * hours_into, 0.7), 1.5, 9.0), 3)
@@ -170,7 +172,7 @@ def generate_db(rng: random.Random) -> list[dict]:
                         affected = (
                             service == "payments"
                             and sql_id == "PAYQRY01"
-                            and timestamp >= INCIDENT_START
+                            and INCIDENT_START <= timestamp < INCIDENT_END
                         )
                         executions = max(1, int(rng.gauss(260 if caller_type == "API" else 120, 35)))
                         elapsed_ms = clamp(rng.gauss(115 if sql_id.endswith("QRY01") else 72, 14), 25, 250)
