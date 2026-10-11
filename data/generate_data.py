@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate deterministic synthetic release-health CSVs (without infra metrics)."""
+"""Generate deterministic synthetic release-health CSVs."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from statistics import mean
 
 
 SEED = 179166
+INFRA_SEED = SEED + 1
 START = datetime(2026, 10, 1, tzinfo=timezone.utc)
 HOURS = 14 * 24
 OUT_DIR = Path(__file__).resolve().parent
@@ -54,6 +55,11 @@ API_INCIDENT_START = INCIDENT_START + timedelta(hours=1)
 API_INCIDENT_END = INCIDENT_END + timedelta(hours=1)
 KAFKA_INCIDENT_START = INCIDENT_START + timedelta(hours=2)
 KAFKA_DRAIN_FACTORS = (0.70, 0.40, 0.12)
+OCT5_BROKER_INCIDENT_START = datetime(2026, 10, 5, 15, tzinfo=timezone.utc)
+OCT5_BROKER_RESTART_AT = datetime(2026, 10, 5, 16, tzinfo=timezone.utc)
+OCT5_BROKER_RECOVERY_AT = datetime(2026, 10, 5, 17, tzinfo=timezone.utc)
+OCT5_BROKER2_TOPICS = {"account-events", "customer-updates"}
+APP_NODES = ("node-a1", "node-a2", "node-a3")
 
 
 def iso(timestamp: datetime) -> str:
@@ -173,6 +179,15 @@ def generate_kafka(rng: random.Random) -> list[dict]:
                         lag = int(lag + max(0, previous_lag - lag) * KAFKA_DRAIN_FACTORS[hours_after])
                         payment_lag_by_partition[partition] = lag
 
+                    # These topics are assigned to broker-2 in the Oct 5
+                    # red-herring scenario. Only their lag changes; throughput
+                    # and error-rate samples stay on their original RNG path.
+                    if topic in OCT5_BROKER2_TOPICS:
+                        if timestamp == OCT5_BROKER_RESTART_AT:
+                            lag = 900 + partition * 45
+                        elif timestamp == OCT5_BROKER_RECOVERY_AT:
+                            lag = 550 + partition * 20
+
                     rows.append({
                         "timestamp": iso(timestamp),
                         "topic": topic,
@@ -232,6 +247,97 @@ def generate_db(rng: random.Random) -> list[dict]:
                             "active_sessions": round(active_sessions, 2),
                             "plan_hash_value": plan_hash,
                         })
+    return rows
+
+
+def generate_infra(rng: random.Random) -> list[dict]:
+    """Generate hourly app, broker, and database-host metrics independently."""
+    rows = []
+    pod_layout = {}
+    for service_index, service in enumerate(SERVICES):
+        pod_count = rng.randint(1, 2)
+        pod_layout[service] = [
+            {
+                "pod": f"{service}-{rng.randrange(1000, 10000)}-x{pod_index + 1}",
+                "node": APP_NODES[(service_index + pod_index) % len(APP_NODES)],
+            }
+            for pod_index in range(pod_count)
+        ]
+
+    broker_topics = (
+        ("kafka-broker-1", "kafka-node-1", "broker-1"),
+        ("kafka-broker-2", "kafka-node-2", "broker-2"),
+        ("kafka-broker-3", "kafka-node-3", "broker-3"),
+    )
+    db_hosts = (
+        ("ORA-PRD-1", "db-host-1"),
+        ("ORA-PRD-2", "db-host-2"),
+    )
+
+    def make_row(timestamp, tier, component, node, pod="", **overrides):
+        values = {
+            "timestamp": iso(timestamp),
+            "tier": tier,
+            "component": component,
+            "node": node,
+            "pod": pod,
+            "cpu_pct": round(rng.uniform(30, 55), 2),
+            "memory_pct": round(rng.uniform(50, 70), 2),
+            "io_wait_pct": round(rng.uniform(1, 9), 2),
+            "restarts": 0,
+            "oom_kills": 0,
+            "status": "Ready" if tier != "db" else "Up",
+        }
+        values.update(overrides)
+        rows.append(values)
+
+    for hour_index in range(HOURS):
+        timestamp = START + timedelta(hours=hour_index)
+
+        for service, pods in pod_layout.items():
+            for pod in pods:
+                cpu_pct = rng.uniform(30, 55)
+                if (
+                    service == "payments"
+                    and datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
+                    <= timestamp
+                    <= INCIDENT_END
+                ):
+                    cpu_pct = rng.uniform(65, 70)
+                make_row(
+                    timestamp,
+                    "app",
+                    service,
+                    pod["node"],
+                    pod["pod"],
+                    cpu_pct=round(cpu_pct, 2),
+                )
+
+        for component, node, _ in broker_topics:
+            overrides = {}
+            if component == "kafka-broker-2":
+                if timestamp == OCT5_BROKER_INCIDENT_START:
+                    overrides["memory_pct"] = round(rng.uniform(93, 96), 2)
+                elif timestamp == OCT5_BROKER_RESTART_AT:
+                    overrides.update(
+                        memory_pct=round(rng.uniform(94, 97), 2),
+                        restarts=1,
+                        oom_kills=1,
+                        status="NotReady",
+                    )
+            make_row(timestamp, "kafka", component, node, component, **overrides)
+
+        for component, node in db_hosts:
+            overrides = {}
+            if (
+                node == "db-host-1"
+                and datetime(2026, 10, 9, 12, tzinfo=timezone.utc)
+                <= timestamp
+                <= INCIDENT_END
+            ):
+                overrides["io_wait_pct"] = round(rng.uniform(35, 45), 2)
+            make_row(timestamp, "db", component, node, **overrides)
+
     return rows
 
 
@@ -346,6 +452,7 @@ def main() -> None:
     kafka_rows = generate_kafka(rng)
     db_rows = generate_db(rng)
     change_rows = generate_changes()
+    infra_rows = generate_infra(random.Random(INFRA_SEED))
 
     datasets = (
         ("api_test_runs.csv", ("run_id", "timestamp", "release_tag", "service", "endpoint", "method",
@@ -356,8 +463,14 @@ def main() -> None:
                             "executions", "avg_elapsed_ms", "cpu_ms", "top_wait_class",
                             "wait_time_pct", "active_sessions", "plan_hash_value"), db_rows),
         ("change_events.csv", ("timestamp", "change_id", "change_type", "description"), change_rows),
+        ("infra_metrics.csv", ("timestamp", "tier", "component", "node", "pod", "cpu_pct",
+                               "memory_pct", "io_wait_pct", "restarts", "oom_kills",
+                               "status"), infra_rows),
     )
-    print(f"Generated CSVs in {OUT_DIR} (seed={SEED}; UTC window={iso(START)} to 2026-10-15T00:00:00Z):")
+    print(
+        f"Generated CSVs in {OUT_DIR} (seed={SEED}, infra seed={INFRA_SEED}; "
+        f"UTC window={iso(START)} to 2026-10-15T00:00:00Z):"
+    )
     for filename, columns, rows in datasets:
         write_csv(filename, columns, rows)
         print(f"  {filename}: {len(rows):,} rows")

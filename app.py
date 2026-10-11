@@ -10,6 +10,7 @@ from data.loader import load_datasets
 from views.api_test_results import render_api_test_results
 from views.database_health import render_database_health
 from views.event_stream_health import render_event_stream_health
+from views.infrastructure_health import render_infrastructure_health
 from views.overview import render_overview
 from views.root_cause_correlation import render_root_cause_correlation
 
@@ -151,6 +152,17 @@ with st.sidebar:
         instance_options,
         default=instance_options,
     )
+    if "infra" in datasets:
+        infra_tier_options = sorted(
+            datasets["infra"]["tier"].dropna().unique().tolist()
+        )
+        selected_infra_tiers = st.multiselect(
+            "Infra tier",
+            infra_tier_options,
+            default=infra_tier_options,
+        )
+    else:
+        selected_infra_tiers = []
 
 selections = {
     "services": selected_services,
@@ -158,6 +170,7 @@ selections = {
     "topics": selected_topics,
     "db_instances": selected_instances,
     "event_ids": selected_events,
+    "infra_tiers": selected_infra_tiers,
 }
 current, baseline = current_and_baseline(
     datasets,
@@ -171,10 +184,10 @@ tab_names = [
     "API Test Results",
     "Event Stream Health",
     "Database Health",
-    "Infrastructure Health",
-    "Root Cause Correlation",
-    "AI Insights",
 ]
+if "infra" in datasets:
+    tab_names.append("Infrastructure Health")
+tab_names.extend(["Root Cause Correlation", "AI Insights"])
 requested_view = st.query_params.get("view", "Overview")
 default_view = requested_view if requested_view in tab_names else "Overview"
 tabs = st.tabs(tab_names, default=default_view)
@@ -198,10 +211,16 @@ with tabs[3]:
         baseline_db=baseline["db"] if selected_events else None,
     )
 
-with tabs[4]:
-    st.info("Coming soon")
+if "infra" in datasets:
+    with tabs[4]:
+        render_infrastructure_health(
+            current["infra"],
+            start_day,
+            end_day,
+        )
 
-with tabs[5]:
+root_cause_tab_index = 5 if "infra" in datasets else 4
+with tabs[root_cause_tab_index]:
     render_root_cause_correlation(
         current["api"],
         current["kafka"],
@@ -210,7 +229,8 @@ with tabs[5]:
         start_day,
         end_day,
         selected_event_ids=selected_events,
+        infra=current.get("infra"),
     )
 
-with tabs[6]:
+with tabs[root_cause_tab_index + 1]:
     st.info("Coming soon")

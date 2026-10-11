@@ -15,6 +15,12 @@ from analysis.thresholds import (
     API_P95_WARNING_MS,
     DB_ELAPSED_CRITICAL_MS,
     DB_ELAPSED_WARNING_MS,
+    INFRA_CPU_CRITICAL_PCT,
+    INFRA_CPU_WARNING_PCT,
+    INFRA_IO_WAIT_CRITICAL_PCT,
+    INFRA_IO_WAIT_WARNING_PCT,
+    INFRA_MEMORY_CRITICAL_PCT,
+    INFRA_MEMORY_WARNING_PCT,
     KAFKA_LAG_CRITICAL_MESSAGES,
     KAFKA_LAG_WARNING_MESSAGES,
     STATUS_COLORS,
@@ -131,6 +137,17 @@ def _render_summary(analysis, start_day, end_day):
         if not cleared and not inconclusive:
             st.caption("No other change events fall within this selected range.")
 
+        infra_assessments = analysis.get("infrastructure_assessments", [])
+        if infra_assessments:
+            st.markdown("**Infrastructure event classification**")
+            for event in infra_assessments:
+                onset = _format_time(event["onset_timestamp"], start_day, end_day)
+                component = f"{event['component']} on {event['node']}"
+                st.markdown(
+                    f"- **{event['classification']}** — `{component}`, "
+                    f"onset {onset}; {event['reason']}"
+                )
+
 
 def _add_threshold(
     figure,
@@ -192,11 +209,11 @@ def _add_breach_shading(figure, frame, row):
         )
 
 
-def _add_event_markers(figure, changes):
+def _add_event_markers(figure, changes, row_count):
     if changes.empty:
         return
     for event in changes.itertuples(index=False):
-        for row in (1, 2, 3):
+        for row in range(1, row_count + 1):
             figure.add_vline(
                 x=event.timestamp,
                 line_dash="dot",
@@ -211,7 +228,7 @@ def _add_event_markers(figure, changes):
             )
 
 
-def _add_thresholds(figure):
+def _add_thresholds(figure, include_infra=False):
     for value, status in (
         (DB_ELAPSED_WARNING_MS, "warning"),
         (DB_ELAPSED_CRITICAL_MS, "critical"),
@@ -241,30 +258,47 @@ def _add_thresholds(figure):
     ):
         _add_threshold(figure, value, status, row=3)
 
+    if include_infra:
+        for value, status in (
+            (INFRA_CPU_WARNING_PCT, "warning"),
+            (INFRA_CPU_CRITICAL_PCT, "critical"),
+            (INFRA_MEMORY_WARNING_PCT, "warning"),
+            (INFRA_MEMORY_CRITICAL_PCT, "critical"),
+            (INFRA_IO_WAIT_WARNING_PCT, "warning"),
+            (INFRA_IO_WAIT_CRITICAL_PCT, "critical"),
+        ):
+            _add_threshold(figure, value, status, row=4)
+
 
 def _render_chart(analysis, changes, start_day, end_day):
     lanes = analysis["lanes"]
     if all(frame.empty for frame in lanes.values()):
         st.info(
-            "No database, API, or messaging metrics match these filters. "
+            "No layer metrics match these filters. "
             "Adjust the sidebar filters to see results."
         )
         return
 
+    include_infra = "Infrastructure" in lanes
+    row_count = 4 if include_infra else 3
+    subplot_titles = [
+        "Database · SQL elapsed time",
+        "API · failure rate and p95 latency",
+        "Messaging · maximum consumer lag",
+    ]
+    if include_infra:
+        subplot_titles.append("Infrastructure · resource utilization")
+    row_heights = [0.28, 0.24, 0.24, 0.24] if include_infra else [0.34, 0.33, 0.33]
     figure = make_subplots(
-        rows=3,
+        rows=row_count,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.08,
-        row_heights=[0.34, 0.33, 0.33],
-        specs=[[{}], [{"secondary_y": True}], [{}]],
-        subplot_titles=(
-            "Database · SQL elapsed time",
-            "API · failure rate and p95 latency",
-            "Messaging · maximum consumer lag",
-        ),
+        vertical_spacing=0.055 if include_infra else 0.08,
+        row_heights=row_heights,
+        specs=[[{}], [{"secondary_y": True}], [{}]] + ([[{}]] if include_infra else []),
+        subplot_titles=tuple(subplot_titles),
     )
-    for row, layer in enumerate(("Database", "API", "Messaging"), start=1):
+    for row, layer in enumerate(lanes, start=1):
         _add_breach_shading(figure, lanes[layer], row)
 
     db = lanes["Database"]
@@ -354,8 +388,32 @@ def _render_chart(analysis, changes, start_day, end_day):
             col=1,
         )
 
-    _add_thresholds(figure)
-    _add_event_markers(figure, changes)
+    infra = lanes.get("Infrastructure")
+    if include_infra and not infra.empty:
+        for metric, label, color in (
+            ("cpu_pct", "Infrastructure CPU", "#60a5fa"),
+            ("memory_pct", "Infrastructure memory", "#a78bfa"),
+            ("io_wait_pct", "Infrastructure I/O wait", "#f97316"),
+        ):
+            figure.add_trace(
+                go.Scatter(
+                    x=infra["timestamp"],
+                    y=infra[metric],
+                    mode="lines+markers",
+                    name=label,
+                    line={"color": color, "width": 2},
+                    marker={"size": 4},
+                    hovertemplate=(
+                        "%{x|%b %d %H:%M} UTC<br>"
+                        f"{label}: " + "%{y:.1f}%<extra></extra>"
+                    ),
+                ),
+                row=4,
+                col=1,
+            )
+
+    _add_thresholds(figure, include_infra=include_infra)
+    _add_event_markers(figure, changes, row_count)
     db_y_max = max(
         float(db["slowest_sql_elapsed_ms"].max()) if not db.empty else 0.0,
         DB_ELAPSED_CRITICAL_MS,
@@ -374,7 +432,7 @@ def _render_chart(analysis, changes, start_day, end_day):
     ) * 1.1
     figure.update_layout(
         **CHART_LAYOUT,
-        height=1010,
+        height=1260 if include_infra else 1010,
         hovermode="x unified",
         legend={"orientation": "h", "y": 1.12, "x": 1, "xanchor": "right"},
     )
@@ -408,6 +466,14 @@ def _render_chart(analysis, changes, start_day, end_day):
         row=3,
         col=1,
     )
+    if include_infra:
+        figure.update_yaxes(
+            title_text="Resource utilization (%)",
+            range=[0, 100],
+            gridcolor="rgba(148,163,184,.14)",
+            row=4,
+            col=1,
+        )
     apply_time_axis(figure, start_day, end_day)
     missing_layers = [
         layer for layer, frame in lanes.items() if frame.empty
@@ -416,13 +482,22 @@ def _render_chart(analysis, changes, start_day, end_day):
         st.caption(
             "No samples for these filtered layers: " + ", ".join(missing_layers) + "."
         )
-    st.caption(
+    thresholds_caption = (
         f"Dashed thresholds (warning / critical): DB elapsed "
         f"{DB_ELAPSED_WARNING_MS:g}/{DB_ELAPSED_CRITICAL_MS:g} ms; API failures "
         f"{API_FAILURE_RATE_WARNING_PCT:g}/{API_FAILURE_RATE_CRITICAL_PCT:g}%; "
         f"API p95 {API_P95_WARNING_MS:g}/{API_P95_CRITICAL_MS:g} ms; messaging lag "
-        f"{KAFKA_LAG_WARNING_MESSAGES:,}/{KAFKA_LAG_CRITICAL_MESSAGES:,} messages. "
-        "Amber shading marks warning periods; red shading marks critical periods."
+        f"{KAFKA_LAG_WARNING_MESSAGES:,}/{KAFKA_LAG_CRITICAL_MESSAGES:,} messages."
+    )
+    if include_infra:
+        thresholds_caption += (
+            f" Infra CPU {INFRA_CPU_WARNING_PCT:g}/{INFRA_CPU_CRITICAL_PCT:g}%; "
+            f"memory {INFRA_MEMORY_WARNING_PCT:g}/{INFRA_MEMORY_CRITICAL_PCT:g}%; "
+            f"I/O wait {INFRA_IO_WAIT_WARNING_PCT:g}/{INFRA_IO_WAIT_CRITICAL_PCT:g}%."
+        )
+    st.caption(
+        thresholds_caption
+        + " Amber shading marks warning periods; red shading marks critical periods."
     )
     st.plotly_chart(figure, width="stretch")
 
@@ -435,6 +510,7 @@ def render_root_cause_correlation(
     start_day,
     end_day,
     selected_event_ids=None,
+    infra=None,
 ):
     """Render deterministic cross-layer analysis for the current sidebar filters."""
     analysis = analyze_root_cause(
@@ -445,6 +521,7 @@ def render_root_cause_correlation(
         start_day,
         end_day,
         selected_event_ids=selected_event_ids or [],
+        infra=infra,
     )
     _render_summary(analysis, start_day, end_day)
     _render_chart(analysis, analysis["changes"], start_day, end_day)

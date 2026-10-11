@@ -7,6 +7,7 @@ from datetime import date
 import pandas as pd
 
 PERIODIC_DATASETS = ("api", "kafka", "db")
+OPTIONAL_PERIODIC_DATASETS = ("infra",)
 
 
 def utc_day_bounds(start_day: date, end_day: date) -> tuple[pd.Timestamp, pd.Timestamp]:
@@ -42,6 +43,7 @@ def _filter_dimensions(
     caller_types: list[str],
     topics: list[str],
     db_instances: list[str],
+    infra_tiers: list[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     api = datasets["api"]
     kafka = datasets["kafka"]
@@ -72,7 +74,19 @@ def _filter_dimensions(
     if db_instances:
         db = db[db["db_instance"].isin(db_instances)]
 
-    return {"api": api, "kafka": kafka, "db": db}
+    filtered = {"api": api, "kafka": kafka, "db": db}
+    if "infra" in datasets:
+        infra = datasets["infra"]
+        if service_names:
+            app_rows = infra["tier"].eq("app") & infra["component"].isin(service_names)
+            infra = infra.loc[~infra["tier"].eq("app") | app_rows]
+        if db_instances:
+            db_rows = infra["tier"].eq("db") & infra["component"].isin(db_instances)
+            infra = infra.loc[~infra["tier"].eq("db") | db_rows]
+        if infra_tiers:
+            infra = infra[infra["tier"].isin(infra_tiers)]
+        filtered["infra"] = infra
+    return filtered
 
 
 def filter_datasets(
@@ -86,10 +100,13 @@ def filter_datasets(
     db_instances: list[str],
     selected_event_ids: list[str],
     event_focus: str | None = None,
+    infra_tiers: list[str] | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Apply time, event, service, caller, topic, and instance filters."""
     filtered = {}
-    for key in PERIODIC_DATASETS:
+    for key in (*PERIODIC_DATASETS, *OPTIONAL_PERIODIC_DATASETS):
+        if key not in datasets:
+            continue
         frame = datasets[key]
         mask = pd.Series(True, index=frame.index)
         if start is not None:
@@ -111,6 +128,7 @@ def filter_datasets(
         caller_types,
         topics,
         db_instances,
+        infra_tiers,
     )
     return {
         **dimension_filtered,
@@ -132,6 +150,7 @@ def current_and_baseline(
         "topics": selections["topics"],
         "db_instances": selections["db_instances"],
         "selected_event_ids": selections["event_ids"],
+        "infra_tiers": selections.get("infra_tiers", []),
     }
 
     if selections["event_ids"]:

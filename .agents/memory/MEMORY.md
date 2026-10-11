@@ -1,1 +1,2 @@
 - [Prompt log](prompt-log.md) — append each user prompt and a one-line outcome to `PROMPTS.md`.
+- [Infrastructure correlation](infrastructure-correlation.md) — keep infra event classification separate from established root-cause trigger attribution.

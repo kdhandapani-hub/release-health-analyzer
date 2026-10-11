@@ -13,6 +13,9 @@ CSV_FILES = {
     "db": "db_metrics.csv",
     "changes": "change_events.csv",
 }
+OPTIONAL_CSV_FILES = {
+    "infra": "infra_metrics.csv",
+}
 
 
 @st.cache_data(show_spinner=False)
@@ -30,6 +33,10 @@ def load_datasets() -> dict[str, pd.DataFrame]:
         key: pd.read_csv(DATA_DIR / filename)
         for key, filename in CSV_FILES.items()
     }
+    for key, filename in OPTIONAL_CSV_FILES.items():
+        path = DATA_DIR / filename
+        if path.is_file():
+            datasets[key] = pd.read_csv(path)
     for frame in datasets.values():
         frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="raise")
     datasets["api"]["passed"] = (

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import pandas as pd
 
+from analysis.infrastructure import (
+    classify_infrastructure_episodes,
+    infrastructure_hourly_metrics,
+)
 from analysis.thresholds import (
     API_FAILURE_RATE_CRITICAL_PCT,
     API_FAILURE_RATE_WARNING_PCT,
@@ -143,6 +147,7 @@ def analyze_root_cause(
     start_day,
     end_day,
     selected_event_ids: list[str] | None = None,
+    infra: pd.DataFrame | None = None,
 ) -> dict:
     """Return filtered hourly lanes, first breaches, likely trigger, and event status."""
     lanes = {
@@ -150,6 +155,8 @@ def analyze_root_cause(
         "API": api_hourly_metrics(api),
         "Messaging": messaging_hourly_metrics(kafka),
     }
+    if infra is not None:
+        lanes["Infrastructure"] = infrastructure_hourly_metrics(infra)
     sequence = []
     first_breaches = []
     critical_breaches = []
@@ -267,6 +274,12 @@ def analyze_root_cause(
                 }
             )
 
+    infrastructure_assessments = (
+        classify_infrastructure_episodes(infra, critical_breaches)
+        if infra is not None
+        else []
+    )
+
     return {
         "lanes": lanes,
         "first_breaches": first_breaches,
@@ -276,5 +289,6 @@ def analyze_root_cause(
         "trigger": trigger,
         "sequence": sequence,
         "event_assessments": event_assessments,
+        "infrastructure_assessments": infrastructure_assessments,
         "changes": event_frame,
     }

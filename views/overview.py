@@ -4,6 +4,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from analysis.metrics import health_for_layer, summarize
+from analysis.infrastructure import summarize_infrastructure
 from analysis.thresholds import DB_ELAPSED_CRITICAL_MS, DB_ELAPSED_WARNING_MS, STATUS_COLORS
 from views.time_axes import apply_time_axis
 
@@ -153,12 +154,23 @@ def _database_trend_chart(db, start_day, end_day):
 def render_overview(current, baseline, start_day, end_day):
     current_metrics = summarize(current["api"], current["kafka"], current["db"])
     baseline_metrics = summarize(baseline["api"], baseline["kafka"], baseline["db"])
+    has_infra = "infra" in current
+    infra_metrics = (
+        summarize_infrastructure(current["infra"]) if has_infra else None
+    )
+    baseline_infra_metrics = (
+        summarize_infrastructure(baseline["infra"])
+        if has_infra and "infra" in baseline
+        else None
+    )
 
     counts = {
         "API": len(current["api"]),
         "Messaging": len(current["kafka"]),
         "Database": len(current["db"]),
     }
+    if has_infra:
+        counts["Infrastructure"] = len(current["infra"])
     if not any(counts.values()):
         st.info("No data matches these filters. Adjust the sidebar filters to see results.")
         return
@@ -284,6 +296,76 @@ def render_overview(current, baseline, start_day, end_day):
             ),
         ],
     )
+
+    if has_infra:
+        baseline_infra_metrics = baseline_infra_metrics or summarize_infrastructure(
+            current["infra"].iloc[0:0]
+        )
+        _layer_card(
+            "Infrastructure",
+            infra_metrics["health"],
+            4,
+            [
+                (
+                    "Peak CPU (%)",
+                    (
+                        f'{infra_metrics["peak_cpu_pct"]:.1f}%'
+                        if infra_metrics["peak_cpu_pct"] is not None
+                        else None
+                    ),
+                    _delta(
+                        infra_metrics["peak_cpu_pct"],
+                        baseline_infra_metrics["peak_cpu_pct"],
+                        "pp",
+                    ),
+                    "inverse",
+                ),
+                (
+                    "Peak memory (%)",
+                    (
+                        f'{infra_metrics["peak_memory_pct"]:.1f}%'
+                        if infra_metrics["peak_memory_pct"] is not None
+                        else None
+                    ),
+                    _delta(
+                        infra_metrics["peak_memory_pct"],
+                        baseline_infra_metrics["peak_memory_pct"],
+                        "pp",
+                    ),
+                    "inverse",
+                ),
+                (
+                    "Total restarts",
+                    (
+                        f'{infra_metrics["total_restarts"]:,}'
+                        if infra_metrics["total_restarts"] is not None
+                        else None
+                    ),
+                    _delta(
+                        infra_metrics["total_restarts"],
+                        baseline_infra_metrics["total_restarts"],
+                        "restarts",
+                        0,
+                    ),
+                    "inverse",
+                ),
+                (
+                    "Unhealthy pods / hosts",
+                    (
+                        f'{infra_metrics["unhealthy_assets"]:,}'
+                        if infra_metrics["unhealthy_assets"] is not None
+                        else None
+                    ),
+                    _delta(
+                        infra_metrics["unhealthy_assets"],
+                        baseline_infra_metrics["unhealthy_assets"],
+                        "assets",
+                        0,
+                    ),
+                    "inverse",
+                ),
+            ],
+        )
 
     st.markdown("### Layer trends")
     chart_specs = (
