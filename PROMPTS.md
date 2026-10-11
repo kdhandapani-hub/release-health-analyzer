@@ -200,3 +200,21 @@ Continue on Free with a smaller scope: ONLY do item 2. Render the deterministic 
 
 ## Outcome
 Kept only deterministic Sequence rendering and four-section AI output, restored the original payload fields, removed timestamp validation, invalidated the old cache, confirmed the app runs, and regenerated Oct 9 once.
+
+## Prompt
+Write README.md for the repo (replace any existing one). Sections:
+1. Title + one-line summary + a "Synthetic data only" note.
+2. The problem (3–4 sentences) and what the app answers: "Did this change break anything, where, and why?"
+3. Features: one bullet per tab (Overview, API Test Results, Event Stream Health, Database Health, Infrastructure Health, Root Cause Correlation, AI Insights).
+4. The demo scenario: Oct 9 timeline (06:00 app release cleared → 10:00 DBPATCH-1009 → 11:00 PAYQRY01 plan regression 7.7x → 12:00 API → 13:00 lag onset → db-host-1 io_wait as symptom) and the Oct 5 isolated kafka-broker-2 restart.
+5. Architecture: a short ASCII diagram (CSV generators → data loaders → analysis/ (metrics, thresholds, correlation, AI context) → views/ → Streamlit) and the folder structure.
+6. Datasets: the five CSVs with row counts and one-line descriptions; reproducible via fixed seeds.
+7. Run locally: pip install, python data/generate_data.py, streamlit run app.py; optional OPENAI_API_KEY and LLM_MODEL.
+8. Design decisions: correlation by DB connection user (not MODULE), deterministic root-cause logic with the LLM only explaining, shared thresholds module, onset vs critical sequencing, worst-SQL vs average.
+9. Built with AI (vibe coding): Replit Agent for code, spec-driven prompts (link SPEC.md and PROMPTS.md), human verification at each step.
+10. Production path: real ingestion (Newman, Kafka/Prometheus, Oracle AWR/ASH, Kubernetes metrics), alerting, auth, tests in CI, RAG over runbooks and past incidents for AI Insights.
+11. A "Screenshots" section with placeholder image links under docs/screenshots/ that I'll fill in.
+Keep it concise and scannable.
+
+## Outcome
+Replaced the root README with concise project, feature, demo, architecture, dataset, setup, design, AI-build, production-path, and screenshot documentation; logged this prompt.
