@@ -150,10 +150,26 @@ def analyze_root_cause(
         "API": api_hourly_metrics(api),
         "Messaging": messaging_hourly_metrics(kafka),
     }
+    sequence = []
     first_breaches = []
     critical_breaches = []
     for layer in ROOT_CAUSE_LAYERS:
+        warning_rows = lanes[layer].loc[
+            lanes[layer]["status"].isin(["warning", "critical"])
+        ]
         critical_rows = lanes[layer].loc[lanes[layer]["status"] == "critical"]
+        if not warning_rows.empty:
+            sequence.append(
+                {
+                    "layer": layer,
+                    "onset_timestamp": warning_rows["timestamp"].min(),
+                    "critical_timestamp": (
+                        critical_rows["timestamp"].min()
+                        if not critical_rows.empty
+                        else None
+                    ),
+                }
+            )
         critical_breaches.extend(
             {"layer": layer, "timestamp": timestamp}
             for timestamp in critical_rows["timestamp"]
@@ -171,6 +187,20 @@ def analyze_root_cause(
     )
     critical_breaches.sort(
         key=lambda breach: (breach["timestamp"], layer_order[breach["layer"]])
+    )
+    sequence.sort(
+        key=lambda breach: (
+            breach["onset_timestamp"],
+            layer_order[breach["layer"]],
+        )
+    )
+    first_warning = (
+        {
+            "layer": sequence[0]["layer"],
+            "timestamp": sequence[0]["onset_timestamp"],
+        }
+        if sequence
+        else None
     )
     first_breach = first_breaches[0] if first_breaches else None
 
@@ -237,11 +267,11 @@ def analyze_root_cause(
                 }
             )
 
-    sequence = first_breaches
     return {
         "lanes": lanes,
         "first_breaches": first_breaches,
         "critical_breaches": critical_breaches,
+        "first_warning": first_warning,
         "first_breach": first_breach,
         "trigger": trigger,
         "sequence": sequence,

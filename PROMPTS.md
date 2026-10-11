@@ -103,3 +103,9 @@ Respect sidebar filters, use the same colors and adaptive horizontal x-axis labe
 
 ## Outcome
 Built the three-lane filtered correlation view with shared thresholds, warning/critical shading, labeled change markers, and deterministic trigger/clearance summaries. Verified the Oct 9 chain (Database 11:00 → API 12:00 → Messaging 18:00 UTC), DBPATCH-1009 attribution, cleared app release, and 14-chart app render.
+
+## Prompt
+In Root Cause Correlation, order the degradation sequence by each layer's first WARNING breach (onset), and show the first CRITICAL breach alongside it, e.g. "Messaging: onset 13:00, critical 18:00". Keep trigger attribution and the "cleared" logic as they are.
+
+## Outcome
+Ordered the sequence by first warning onset and displayed each layer’s first critical time alongside it. Verified Oct 9 onset/critical pairs, unchanged DBPATCH-1009 attribution and release clearance, and a clean 14-chart app render.

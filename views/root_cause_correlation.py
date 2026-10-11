@@ -58,43 +58,56 @@ def _format_duration(delta):
 
 def _render_summary(analysis, start_day, end_day):
     st.subheader("Correlation summary")
+    first_warning = analysis["first_warning"]
     first_breach = analysis["first_breach"]
     trigger = analysis["trigger"]
     with st.container(border=True):
-        if first_breach is None:
+        if first_warning is None:
             st.info("No correlated degradation in this range.")
             st.caption(
-                "No filtered layer reached its critical threshold during the selected range."
+                "No filtered layer reached a warning threshold during the selected range."
             )
         else:
-            first_time = first_breach["timestamp"]
             trigger_label = (
                 f"{trigger['change_id']} · {trigger['change_type']} · "
                 f"{_format_time(trigger['timestamp'], start_day, end_day)}"
                 if trigger
-                else "No preceding change event in this range"
+                else (
+                    "No preceding change event before the first critical breach"
+                    if first_breach
+                    else "No critical breach to attribute"
+                )
             )
             first_label = (
-                f"{first_breach['layer']} · "
-                f"{_format_time(first_time, start_day, end_day)}"
+                f"{first_warning['layer']} · "
+                f"{_format_time(first_warning['timestamp'], start_day, end_day)}"
             )
             sequence = " → ".join(
-                f"{item['layer']} {_format_time(item['timestamp'], start_day, end_day)}"
+                f"{item['layer']}: onset "
+                f"{_format_time(item['onset_timestamp'], start_day, end_day)}, "
+                f"critical "
+                f"{_format_time(item['critical_timestamp'], start_day, end_day) if item['critical_timestamp'] is not None else 'not reached'}"
                 for item in analysis["sequence"]
             )
             elapsed = (
-                _format_duration(first_time - trigger["timestamp"])
-                if trigger
+                _format_duration(
+                    first_breach["timestamp"] - trigger["timestamp"]
+                )
+                if trigger and first_breach
+                else "No critical breach in range"
+                if not first_breach
                 else "Unavailable"
             )
             cols = st.columns(3)
             cols[0].markdown("**Likely trigger**")
             cols[0].write(trigger_label)
-            cols[1].markdown("**First layer to degrade**")
+            cols[1].markdown("**First warning onset**")
             cols[1].write(first_label)
-            cols[2].markdown("**Change to first breach**")
+            cols[2].markdown("**Change to first critical breach**")
             cols[2].write(elapsed)
-            st.markdown(f"**Critical-breach sequence:** {sequence}")
+            st.markdown(
+                f"**Degradation sequence (warning onset → first critical):** {sequence}"
+            )
 
         assessments = analysis["event_assessments"]
         cleared = [event for event in assessments if event["status"] == "cleared"]
