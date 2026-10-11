@@ -131,3 +131,34 @@ Then show me: Oct 9 correlation summary, Oct 5 correlation summary, and the Infr
 
 ## Outcome
 Generated deterministic infrastructure metrics with a separate seed; preserved all prior API, DB, change-event data and all other Kafka values. Added shared infrastructure thresholds, filtering, Overview KPIs, the optional Infrastructure Health tab and Root Cause lane; verified Oct 9 as a symptom, Oct 5 as isolated, DBPATCH-1009 attribution, missing-file fallback, and the three requested views.
+
+## Prompt
+Polish pass across the app. Fix each item, then report a checklist confirming each one:
+1. Sidebar multiselect filters start empty; empty means All, with a visible small “All” hint.
+2. Delete attached_assets/ and add it to .gitignore.
+3. Replace the API p50/p95/p99 bar chart with a p95 latency-over-time line chart by service and a 1,000 ms critical line; keep the percentile KPI cards.
+4. Fix clipped API failure-reason labels with right margin or inside labels.
+5. Confirm the 98% SLA line and green/amber/red bars on both pass-rate charts.
+6. Use a neutral categorical palette for Database SQL-ID series, not health-status colors.
+7. Widen the SQL ID column so IDs do not wrap.
+8. Add a Top SQL note explaining max elapsed is per instance and hour and may exceed the cross-instance average in the trend.
+9. Order the Root Cause sequence by each layer’s first WARNING onset and show its first CRITICAL time; preserve trigger and cleared/symptom/isolated logic.
+10. Stagger nearby change-event labels, including R2026.10.09 at 06:00 and DBPATCH-1009 at 10:00, on every chart that shows markers.
+11. Use 500 ms p95-axis ticks in Root Cause and label each API threshold line with its metric.
+12. Shade warning/critical breaches only after at least two consecutive hourly samples; do not change summary breach times.
+Verify the Oct 9 and Oct 5 summaries and confirm the app has no exceptions.
+
+## Outcome
+Completed the polish changes and verified the exact Oct 9 sequence, unchanged DBPATCH-1009 attribution and Oct 5/Oct 9 classifications, all 12 UI/data checks, and a clean app render.
+
+## Prompt
+Stay on Free. First report the checklist status for all 12 polish items: done / not done / failing, and for anything failing, the exact check and error. Then fix the remaining items one at a time, re-verifying after each. Don't change the Oct 9 / Oct 5 incident logic.
+
+## Outcome
+Reported item-by-item status and exact failures, fixed the API chart layout exception, rechecked pending items individually, and preserved trigger attribution and event classifications.
+
+## Prompt
+Clarification on #9: the sequence display SHOULD change — order layers by first WARNING breach (onset) and show first CRITICAL next to it, e.g. "Database: onset 11:00, critical 11:00 → API: onset 12:00, critical 12:00 → Messaging: onset 13:00, critical 18:00". Only the trigger attribution (DBPATCH-1009) and the cleared/symptom/isolated classifications stay unchanged.
+
+## Outcome
+Updated and verified the requested Oct 9 onset/critical sequence; DBPATCH-1009, the cleared release, Oct 9 infrastructure symptom, and Oct 5 isolated classification remain unchanged.

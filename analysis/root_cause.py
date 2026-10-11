@@ -161,20 +161,36 @@ def analyze_root_cause(
     first_breaches = []
     critical_breaches = []
     for layer in ROOT_CAUSE_LAYERS:
-        warning_rows = lanes[layer].loc[
-            lanes[layer]["status"].isin(["warning", "critical"])
-        ]
-        critical_rows = lanes[layer].loc[lanes[layer]["status"] == "critical"]
+        lane = lanes[layer].sort_values("timestamp", kind="stable").reset_index(drop=True)
+        warning_rows = lane.loc[lane["status"].isin(["warning", "critical"])]
+        critical_rows = lane.loc[lane["status"] == "critical"]
         if not warning_rows.empty:
+            critical_timestamp = (
+                critical_rows["timestamp"].min()
+                if not critical_rows.empty
+                else None
+            )
+            onset_timestamp = warning_rows["timestamp"].min()
+            if critical_timestamp is not None:
+                critical_index = lane.index[lane["timestamp"] == critical_timestamp][0]
+                onset_timestamp = critical_timestamp
+                previous_timestamp = critical_timestamp
+                for sample in reversed(
+                    list(lane.iloc[:critical_index].itertuples(index=False))
+                ):
+                    if (
+                        sample.status not in ("warning", "critical")
+                        or previous_timestamp - sample.timestamp
+                        != pd.Timedelta(hours=1)
+                    ):
+                        break
+                    onset_timestamp = sample.timestamp
+                    previous_timestamp = sample.timestamp
             sequence.append(
                 {
                     "layer": layer,
-                    "onset_timestamp": warning_rows["timestamp"].min(),
-                    "critical_timestamp": (
-                        critical_rows["timestamp"].min()
-                        if not critical_rows.empty
-                        else None
-                    ),
+                    "onset_timestamp": onset_timestamp,
+                    "critical_timestamp": critical_timestamp,
                 }
             )
         critical_breaches.extend(

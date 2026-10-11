@@ -183,9 +183,11 @@ def render_api_test_results(api, start_day, end_day):
             ),
         )
         failure_chart.update_layout(
-            **CHART_LAYOUT,
-            height=max(300, len(failures) * 42),
-            margin={"l": 8, "r": 100, "t": 55, "b": 12},
+            **{
+                **CHART_LAYOUT,
+                "height": max(300, len(failures) * 42),
+                "margin": {"l": 8, "r": 100, "t": 55, "b": 12},
+            }
         )
         failure_chart.update_xaxes(
             title="Failed runs (count)",
