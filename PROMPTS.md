@@ -228,3 +228,9 @@ Repo cleanup for graders:
 
 ## Outcome
 Added requirements.txt using the pyproject dependency constraints, updated package metadata and README setup instructions, and deleted the unused main.py stub. Confirmed the AI Insights timestamp validator and the three requested UTC fields are absent; left them unchanged as instructed.
+
+## Prompt
+Copy these four attached images into docs/screenshots/ keeping their exact file names (overview.png, database-health.png, root-cause-correlation.png, ai-insights.png). Don't resize or rename them, and don't change any code. Confirm the README image links resolve. Attached: overview, database-health, root-cause-correlation, and ai-insights PNGs.
+
+## Outcome
+Copied the four screenshots byte-for-byte to docs/screenshots/ using the README-linked filenames and verified each link resolves; no code was changed.
