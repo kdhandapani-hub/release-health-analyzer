@@ -7,7 +7,6 @@ import math
 import numbers
 import os
 import re
-from datetime import datetime
 
 import pandas as pd
 
@@ -24,34 +23,16 @@ COMPACT_CONTEXT_BYTES = 2900
 SYSTEM_PROMPT = (
     "You are an SRE incident analyst. Use ONLY the summarized JSON in the user "
     "message. Do not contradict the deterministic correlation result, including "
-    "its likely trigger, warning onsets, critical start times, recoveries, "
-    "cleared changes, or infrastructure classifications. Follow field_definitions "
-    "literally: first_critical_utc is when critical begins, not when it ends. "
-    "Do not create or output a Sequence section or restate the cross-layer "
-    "timeline; the application inserts that section deterministically. Do not "
-    "guess; say 'insufficient data' when evidence is missing. Use a UTC timestamp "
-    "only when that exact timestamp appears in the JSON. If no layer breaches are "
+    "its likely trigger, onset/critical sequence, cleared changes, or "
+    "infrastructure classifications. Do not create or output a Sequence section; "
+    "the application inserts that section deterministically. Do not guess; say "
+    "'insufficient data' when evidence is missing. If no layer breaches are "
     "reported and layer coverage is available, say the period was healthy and "
     "list any isolated events. If coverage is missing, say so. Return plain "
     "English under exactly these headings, in this order: What happened, Likely "
     "root cause, Ruled out, Recommended next checks."
 )
 
-_ISO_UTC_RE = re.compile(
-    r"\b(?P<date>\d{4}-\d{2}-\d{2})(?:\s+at\s+|\s+|T)"
-    r"(?P<time>\d{1,2}:\d{2})\s*UTC\b",
-    re.IGNORECASE,
-)
-_MONTH_UTC_RE = re.compile(
-    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
-    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
-    r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<day>\d{1,2})"
-    r"(?:,?\s+(?P<year>\d{4}))?(?:\s+at)?\s+"
-    r"(?P<time>\d{1,2}:\d{2})\s*UTC\b",
-    re.IGNORECASE,
-)
-_TIME_UTC_RE = re.compile(r"\b(?P<time>\d{1,2}:\d{2})\s*UTC\b", re.IGNORECASE)
-_SOURCE_UTC_RE = re.compile(r"\b\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\b")
 _AI_SECTION_RE = re.compile(
     r"(?im)^\s*(?:#{1,6}\s*)?(?:\d+[.)]\s*)?(?:\*\*)?"
     r"(What happened|Sequence|Likely root cause|Ruled out|"
@@ -100,17 +81,6 @@ def _timestamp(value):
         return pd.Timestamp(value).strftime("%Y-%m-%d %H:%M UTC")
     except (TypeError, ValueError):
         return None
-
-
-def _recovered_timestamp(lane: pd.DataFrame, onset, first_critical):
-    """Return the first healthy sample after the initial breach, if observed."""
-    if lane.empty:
-        return None
-    breach_time = first_critical if first_critical is not None else onset
-    healthy = lane.loc[
-        (lane["timestamp"] > breach_time) & lane["status"].eq("healthy")
-    ].sort_values("timestamp", kind="stable")
-    return healthy.iloc[0]["timestamp"] if not healthy.empty else None
 
 
 def _filtered_values(selections, key):
@@ -235,15 +205,8 @@ def build_insights_context(
         sequence.append(
             {
                 "layer": item["layer"],
-                "onset_warning_utc": _timestamp(item["onset_timestamp"]),
-                "first_critical_utc": _timestamp(item["critical_timestamp"]),
-                "recovered_utc": _timestamp(
-                    _recovered_timestamp(
-                        root["lanes"][item["layer"]],
-                        item["onset_timestamp"],
-                        item["critical_timestamp"],
-                    )
-                ),
+                "onset_utc": _timestamp(item["onset_timestamp"]),
+                "critical_utc": _timestamp(item["critical_timestamp"]),
             }
         )
     root_summary = {
@@ -334,18 +297,6 @@ def build_insights_context(
 
     lanes = root["lanes"]
     context = {
-        "field_definitions": {
-            "onset_warning_utc": (
-                "First warning-or-critical sample in the layer's degradation sequence."
-            ),
-            "first_critical_utc": (
-                "First sample when that layer reached critical; null if never reached."
-            ),
-            "recovered_utc": (
-                "First healthy sample after critical, or after warning onset if no "
-                "critical sample exists; null if not observed."
-            ),
-        },
         "date_range_utc": {
             "start": str(start_day),
             "end": str(end_day),
@@ -441,6 +392,66 @@ def _metric_sentence(name, metric, unit, delta_unit=None):
     return sentence + "."
 
 
+def format_deterministic_sequence(context: dict) -> str:
+    """Render the same warning-onset/first-critical sequence as Root Cause."""
+    sequence = context["root_cause"]["sequence"]
+    if not sequence:
+        return "No layer breaches occurred in this range."
+
+    date_range = context["date_range_utc"]
+    single_day = date_range["start"] == date_range["end"]
+
+    def format_time(value):
+        if not value:
+            return None
+        timestamp = pd.Timestamp(value)
+        if single_day:
+            return timestamp.strftime("%H:%M UTC")
+        return timestamp.strftime("%b %-d %H:%M UTC")
+
+    parts = []
+    for item in sequence:
+        onset = format_time(item["onset_utc"]) or "not recorded"
+        critical = format_time(item["critical_utc"])
+        parts.append(
+            f"{item['layer']}: onset {onset}, "
+            f"critical {critical if critical else 'not reached'}"
+        )
+    return " → ".join(parts)
+
+
+def _parse_ai_sections(text: str) -> dict[str, str]:
+    matches = list(_AI_SECTION_RE.finditer(text))
+    sections = {}
+    for index, match in enumerate(matches):
+        name = match.group(1).lower()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+        sections.setdefault(name, text[match.end() : end].strip())
+    return sections
+
+
+def compose_ai_summary(ai_text: str, context: dict) -> str | None:
+    """Keep the Sequence section deterministic, ignoring any model-written version."""
+    generated = _parse_ai_sections(ai_text)
+    required = (
+        "what happened",
+        "likely root cause",
+        "ruled out",
+        "recommended next checks",
+    )
+    if any(not generated.get(section) for section in required):
+        return None
+
+    sections = (
+        ("What happened", generated["what happened"]),
+        ("Sequence", format_deterministic_sequence(context)),
+        ("Likely root cause", generated["likely root cause"]),
+        ("Ruled out", generated["ruled out"]),
+        ("Recommended next checks", generated["recommended next checks"]),
+    )
+    return "\n\n".join(f"### {title}\n{body}" for title, body in sections)
+
+
 def build_rule_based_narrative(context: dict) -> str:
     """Create the always-available incident summary from summarized JSON only."""
     root = context["root_cause"]
@@ -486,11 +497,7 @@ def build_rule_based_narrative(context: dict) -> str:
                 f"Warning-level degradation began in {first['layer']} at "
                 f"{first['onset_utc']}; no critical breach was recorded."
             )
-        sequence_text = " → ".join(
-            f"{item['layer']}: onset {item['onset_utc']}, critical "
-            f"{item['critical_utc'] or 'not reached'}"
-            for item in sequence
-        )
+        sequence_text = format_deterministic_sequence(context)
         trigger = root["likely_trigger"]
         if trigger:
             likely_cause = (
@@ -584,7 +591,9 @@ def build_rule_based_narrative(context: dict) -> str:
             "and compare its before/after elapsed time."
         )
     critical_layers = {
-        item["layer"] for item in sequence if item["critical_utc"] is not None
+        item["layer"]
+        for item in sequence
+        if item["critical_utc"] is not None
     }
     if "API" in critical_layers:
         checks.append(

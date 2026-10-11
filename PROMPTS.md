@@ -184,3 +184,19 @@ Never log or display the API key. Keep logic in analysis/ and the view in views.
 
 ## Outcome
 Added and verified the filter-aware AI Insights tab with a sub-3 KB payload, deterministic-first summary, explicit cached OpenAI calls, and safe fallback; Oct 9/Oct 5 incident results remained unchanged.
+
+## Prompt
+The AI summary misread the Messaging timeline: it said "13:00 Messaging began to degrade critically" and "18:00 Messaging critical condition ended". Truth: onset (warning) 13:00, critical STARTED 18:00. Fix:
+1. Make the JSON payload unambiguous: per layer use onset_warning_utc, first_critical_utc, and recovered_utc (if known), with a short "field_definitions" block explaining each.
+2. Do not let the model write the Sequence section: render the deterministic Sequence section verbatim, and have the model write only What happened, Likely root cause, Ruled out, and Recommended next checks.
+3. Add a lightweight validator: any UTC timestamp in the AI text that does not appear in the payload gets flagged with a warning under the summary ("AI output contains a time not found in source data").
+Then regenerate for Oct 9 (clear the cache for that selection).
+
+## Outcome
+Clarified the per-layer UTC fields, rendered the Sequence section deterministically, added timestamp validation, cleared stale AI cache entries, and regenerated Oct 9 once with source-matched times.
+
+## Prompt
+Continue on Free with a smaller scope: ONLY do item 2. Render the deterministic Sequence section verbatim and remove Sequence from what the model writes; the model writes only What happened, Likely root cause, Ruled out, and Recommended next checks. Skip the validator and the payload renaming. Make sure the app still runs, then regenerate Oct 9.
+
+## Outcome
+Kept only deterministic Sequence rendering and four-section AI output, restored the original payload fields, removed timestamp validation, invalidated the old cache, confirmed the app runs, and regenerated Oct 9 once.

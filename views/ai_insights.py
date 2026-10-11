@@ -11,12 +11,14 @@ import streamlit as st
 from analysis.ai_insights import (
     build_insights_context,
     build_rule_based_narrative,
+    compose_ai_summary,
     configured_model,
     generate_ai_summary,
     serialize_insights_context,
 )
 
 _CACHE_LIMIT = 8
+_CACHE_VERSION = "deterministic-sequence-only-v1"
 
 
 def _cache_key(payload: str, model: str, selections: dict) -> str:
@@ -36,7 +38,7 @@ def _cache_key(payload: str, model: str, selections: dict) -> str:
         separators=(",", ":"),
     )
     digest = hashlib.sha256(
-        f"{model}\0{payload}\0{selection_signature}".encode("utf-8")
+        f"{_CACHE_VERSION}\0{model}\0{payload}\0{selection_signature}".encode("utf-8")
     ).hexdigest()
     return digest
 
@@ -87,6 +89,12 @@ def render_ai_insights(
             "Add it in Replit Tools → Secrets to enable generation."
         )
 
+    if st.session_state.get("ai_insights_cache_version") != _CACHE_VERSION:
+        # Discard responses generated before the deterministic sequence semantics
+        # were added so the old Oct 9 summary cannot be reused.
+        st.session_state["ai_insights_cache"] = {}
+        st.session_state["ai_insights_cache_version"] = _CACHE_VERSION
+
     cache = st.session_state.setdefault("ai_insights_cache", {})
     if not isinstance(cache, dict):
         cache = {}
@@ -114,5 +122,14 @@ def render_ai_insights(
     cached_summary = cache.get(cache_key)
     if cached_summary:
         st.divider()
-        st.caption(f"AI-generated ({model})")
-        st.markdown(cached_summary)
+        composed_summary = compose_ai_summary(cached_summary, json.loads(payload))
+        if composed_summary is None:
+            st.caption("Rule-based")
+            st.info(
+                "The AI response did not include all required sections; "
+                "the rule-based summary remains authoritative."
+            )
+            st.markdown(rule_narrative)
+        else:
+            st.caption(f"AI-generated ({model})")
+            st.markdown(composed_summary)
