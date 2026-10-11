@@ -81,3 +81,25 @@ Consistency: use the shared analysis/ thresholds module for DB elapsed-time warn
 
 ## Outcome
 Built the filtered Database Health tab with DB-time bars, SQL summary/trends, wait-share area, event markers, and plan-regression detection; added the Overview slowest-SQL KPI/trend. Verified PAYQRY01’s 7.7× regression, filter behavior, and clean app rendering.
+
+## Prompt
+Build tab 6 (Root Cause Correlation) per SPEC.md section 4.2, without the infrastructure lane for now:
+
+1. Three time-aligned lanes sharing one x-axis (stacked subplots, shared zoom):
+   - Database: slowest-SQL elapsed (ms) and average elapsed
+   - API: failure rate (%) and p95 latency (ms) on a secondary axis
+   - Messaging: max consumer lag (messages)
+   Draw each layer's warning/critical thresholds from the shared thresholds module, and shade the periods where a layer is in breach using the shared status colors.
+2. Vertical change-event markers labeled with change_id across all three lanes.
+3. Deterministic root-cause logic in analysis/ (rule-based, no LLM):
+   - For each layer, find the first hour it breaches its critical threshold in the selected range.
+   - Order the layers by first breach time and show the sequence, e.g. "Database 11:00 → API 12:00 → Messaging 13:00".
+   - Attribute the likely trigger to the most recent change event before the FIRST breach.
+   - For every other change event in range, show whether it was "cleared" (no breach in any layer within 3 hours after it) or "inconclusive".
+4. A summary panel at the top: likely trigger (change_id + type + time), first layer to degrade, sequence, time from change to first breach, and the list of cleared changes (e.g., R2026.10.09 cleared — no breach for 5 hours after deploy).
+5. If no layer breaches in the selected range, show "No correlated degradation in this range."
+
+Respect sidebar filters, use the same colors and adaptive horizontal x-axis labels, keep logic in analysis/ and the view in views/.
+
+## Outcome
+Built the three-lane filtered correlation view with shared thresholds, warning/critical shading, labeled change markers, and deterministic trigger/clearance summaries. Verified the Oct 9 chain (Database 11:00 → API 12:00 → Messaging 18:00 UTC), DBPATCH-1009 attribution, cleared app release, and 14-chart app render.

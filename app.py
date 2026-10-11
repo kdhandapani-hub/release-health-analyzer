@@ -11,6 +11,7 @@ from views.api_test_results import render_api_test_results
 from views.database_health import render_database_health
 from views.event_stream_health import render_event_stream_health
 from views.overview import render_overview
+from views.root_cause_correlation import render_root_cause_correlation
 
 
 st.set_page_config(
@@ -197,6 +198,19 @@ with tabs[3]:
         baseline_db=baseline["db"] if selected_events else None,
     )
 
-for tab in tabs[4:]:
-    with tab:
-        st.info("Coming soon")
+with tabs[4]:
+    st.info("Coming soon")
+
+with tabs[5]:
+    render_root_cause_correlation(
+        current["api"],
+        current["kafka"],
+        current["db"],
+        datasets["changes"],
+        start_day,
+        end_day,
+        selected_event_ids=selected_events,
+    )
+
+with tabs[6]:
+    st.info("Coming soon")
