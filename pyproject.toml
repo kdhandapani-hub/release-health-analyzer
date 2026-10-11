@@ -1,7 +1,7 @@
 [project]
-name = "repl-nix-workspace"
+name = "release-health-analyzer"
 version = "0.1.0"
-description = "Add your description here"
+description = "Synthetic-data dashboard for correlating release health across application, messaging, database, and infrastructure layers."
 requires-python = ">=3.13"
 dependencies = [
     "openai>=3.28.0",

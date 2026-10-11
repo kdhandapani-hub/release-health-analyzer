@@ -218,3 +218,13 @@ Keep it concise and scannable.
 
 ## Outcome
 Replaced the root README with concise project, feature, demo, architecture, dataset, setup, design, AI-build, production-path, and screenshot documentation; logged this prompt.
+
+## Prompt
+Repo cleanup for graders:
+1. Add requirements.txt (openai, pandas, plotly, streamlit with the versions in pyproject) and change the README "Run locally" step to `pip install -r requirements.txt`. `pip install -e .` fails on this flat layout.
+2. In pyproject.toml set name = "release-health-analyzer" and a one-line description.
+3. Delete main.py (unused Replit stub).
+4. Confirm the AI Insights timestamp validator and the onset_warning_utc / first_critical_utc / recovered_utc fields exist in the code; if not, report that instead of adding them now.
+
+## Outcome
+Added requirements.txt using the pyproject dependency constraints, updated package metadata and README setup instructions, and deleted the unused main.py stub. Confirmed the AI Insights timestamp validator and the three requested UTC fields are absent; left them unchanged as instructed.

@@ -70,7 +70,7 @@ Regenerate all five files with `python data/generate_data.py`. The generator use
 Python 3.13 or newer is required.
 
 ```bash
-python -m pip install -e .
+pip install -r requirements.txt
 python data/generate_data.py
 streamlit run app.py
 ```
