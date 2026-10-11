@@ -18,6 +18,7 @@ from analysis.thresholds import (
     DB_ELAPSED_WARNING_MS,
     STATUS_COLORS,
 )
+from views.event_marker_utils import event_label_yshifts
 from views.time_axes import apply_time_axis
 
 
@@ -35,6 +36,7 @@ WAIT_COLORS = {
     "Commit": STATUS_COLORS["healthy"],
     "Application": STATUS_COLORS["warning"],
 }
+SQL_SERIES_COLORS = ("#60a5fa", "#a78bfa", "#38bdf8", "#818cf8", "#22d3ee")
 
 
 def _db_time_chart(db):
@@ -94,7 +96,7 @@ def _top_sql_table(db):
         "Top wait class",
         "Status",
     )
-    widths = ("8%", "26%", "8%", "10%", "12%", "12%", "14%", "10%")
+    widths = ("13%", "21%", "8%", "10%", "11%", "11%", "16%", "10%")
     header_html = "".join(
         f'<th scope="col" style="width:{width}">{html.escape(header)}</th>'
         for header, width in zip(headers, widths)
@@ -142,6 +144,9 @@ def _top_sql_table(db):
             color: #b7c5d8; font-weight: 600; white-space: normal;
             background: rgba(23,36,56,.56);
           }
+          .db-sql-table th:first-child, .db-sql-table td:first-child {
+            white-space: nowrap;
+          }
         </style>
         <div class="db-sql-table-wrap">
           <table class="db-sql-table">
@@ -153,6 +158,10 @@ def _top_sql_table(db):
         + "</tbody></table></div>",
         unsafe_allow_html=True,
     )
+    st.caption(
+        "Max elapsed is per instance and hour, so it can exceed the "
+        "cross-instance average shown in the trend chart."
+    )
 
 
 def _add_change_markers(figure, changes, start_day, end_day, selected_event_ids):
@@ -161,10 +170,11 @@ def _add_change_markers(figure, changes, start_day, end_day, selected_event_ids)
     start = start_day.isoformat()
     end = end_day.isoformat()
     in_range = changes["timestamp"].dt.strftime("%Y-%m-%d").between(start, end)
-    events = changes[in_range]
+    events = changes[in_range].sort_values("timestamp", kind="stable")
     if selected_event_ids:
         events = events[events["change_id"].isin(selected_event_ids)]
-    for event in events.itertuples(index=False):
+    yshifts = event_label_yshifts(events["timestamp"])
+    for event, yshift in zip(events.itertuples(index=False), yshifts):
         figure.add_vline(
             x=event.timestamp,
             line_dash="dash",
@@ -181,6 +191,7 @@ def _add_change_markers(figure, changes, start_day, end_day, selected_event_ids)
             textangle=-90,
             xanchor="left",
             yanchor="top",
+            yshift=yshift,
             font={"color": STATUS_COLORS["warning"], "size": 10},
         )
 
@@ -197,7 +208,7 @@ def _elapsed_trend(db, changes, start_day, end_day, selected_event_ids):
     )
     top_sql_ids = ranking.index[:5].tolist()
     figure = go.Figure()
-    for sql_id in ranking.index:
+    for index, sql_id in enumerate(ranking.index):
         series = trend[trend["sql_id"] == sql_id]
         is_top = sql_id in top_sql_ids
         figure.add_trace(
@@ -209,7 +220,7 @@ def _elapsed_trend(db, changes, start_day, end_day, selected_event_ids):
                 visible=True if is_top else "legendonly",
                 line={
                     "width": 2.4 if is_top else 1.5,
-                    "color": STATUS_COLORS["critical"] if sql_id == "PAYQRY01" else None,
+                    "color": SQL_SERIES_COLORS[index % len(SQL_SERIES_COLORS)],
                 },
                 marker={"size": 5},
                 customdata=series["db_time_ms"],

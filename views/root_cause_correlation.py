@@ -25,6 +25,7 @@ from analysis.thresholds import (
     KAFKA_LAG_WARNING_MESSAGES,
     STATUS_COLORS,
 )
+from views.event_marker_utils import event_label_yshifts
 from views.time_axes import apply_time_axis
 
 
@@ -156,6 +157,8 @@ def _add_threshold(
     row,
     col=1,
     secondary_y=False,
+    label=None,
+    annotation_position="top left",
 ):
     figure.add_hline(
         y=value,
@@ -165,6 +168,9 @@ def _add_threshold(
         row=row,
         col=col,
         secondary_y=secondary_y,
+        annotation_text=label,
+        annotation_position=annotation_position,
+        annotation_font_color=STATUS_COLORS[status],
     )
 
 
@@ -172,47 +178,62 @@ def _add_breach_shading(figure, frame, row):
     if frame.empty:
         return
     samples = frame.sort_values("timestamp", kind="stable").reset_index(drop=True)
-    active_start = None
-    active_status = None
-    previous_time = None
-    periods = []
+    active_run = []
 
+    def draw_sustained_run(run):
+        if len(run) < 2:
+            return
+        segment_start, segment_status = run[0]
+        previous_time = run[0][0]
+        segments = []
+        for timestamp, status in run[1:]:
+            if status != segment_status:
+                segments.append(
+                    (
+                        segment_start,
+                        previous_time + pd.Timedelta(hours=1),
+                        segment_status,
+                    )
+                )
+                segment_start, segment_status = timestamp, status
+            previous_time = timestamp
+        segments.append(
+            (segment_start, previous_time + pd.Timedelta(hours=1), segment_status)
+        )
+        for start, end, status in segments:
+            figure.add_vrect(
+                x0=start,
+                x1=end,
+                fillcolor=STATUS_COLORS[status],
+                opacity=0.20 if status == "warning" else 0.28,
+                line_width=0,
+                layer="below",
+                row=row,
+                col=1,
+            )
+
+    previous_time = None
     for sample in samples.itertuples(index=False):
-        status = sample.status
         timestamp = sample.timestamp
-        if status not in ("warning", "critical"):
-            if active_start is not None:
-                periods.append((active_start, previous_time + pd.Timedelta(hours=1), active_status))
-                active_start = active_status = None
+        if sample.status not in ("warning", "critical"):
+            draw_sustained_run(active_run)
+            active_run = []
             previous_time = timestamp
             continue
-        if active_start is None:
-            active_start, active_status = timestamp, status
-        elif status != active_status or timestamp != previous_time + pd.Timedelta(hours=1):
-            periods.append((active_start, previous_time + pd.Timedelta(hours=1), active_status))
-            active_start, active_status = timestamp, status
+        if active_run and timestamp != previous_time + pd.Timedelta(hours=1):
+            draw_sustained_run(active_run)
+            active_run = []
+        active_run.append((timestamp, sample.status))
         previous_time = timestamp
-
-    if active_start is not None:
-        periods.append((active_start, previous_time + pd.Timedelta(hours=1), active_status))
-
-    for start, end, status in periods:
-        figure.add_vrect(
-            x0=start,
-            x1=end,
-            fillcolor=STATUS_COLORS[status],
-            opacity=0.20 if status == "warning" else 0.28,
-            line_width=0,
-            layer="below",
-            row=row,
-            col=1,
-        )
+    draw_sustained_run(active_run)
 
 
 def _add_event_markers(figure, changes, row_count):
     if changes.empty:
         return
-    for event in changes.itertuples(index=False):
+    ordered = changes.sort_values("timestamp", kind="stable")
+    yshifts = event_label_yshifts(ordered["timestamp"])
+    for event, yshift in zip(ordered.itertuples(index=False), yshifts):
         for row in range(1, row_count + 1):
             figure.add_vline(
                 x=event.timestamp,
@@ -223,6 +244,7 @@ def _add_event_markers(figure, changes, row_count):
                 annotation_position="top left",
                 annotation_font_color=STATUS_COLORS["warning"],
                 annotation_textangle=-90,
+                annotation_yshift=yshift,
                 row=row,
                 col=1,
             )
@@ -235,14 +257,41 @@ def _add_thresholds(figure, include_infra=False):
     ):
         _add_threshold(figure, value, status, row=1)
 
-    for value, status in (
-        (API_FAILURE_RATE_WARNING_PCT, "warning"),
-        (API_FAILURE_RATE_CRITICAL_PCT, "critical"),
+    for value, status, label, position in (
+        (
+            API_FAILURE_RATE_WARNING_PCT,
+            "warning",
+            f"Failure {API_FAILURE_RATE_WARNING_PCT:g}% warning",
+            "top left",
+        ),
+        (
+            API_FAILURE_RATE_CRITICAL_PCT,
+            "critical",
+            f"Failure {API_FAILURE_RATE_CRITICAL_PCT:g}% critical",
+            "bottom left",
+        ),
     ):
-        _add_threshold(figure, value, status, row=2)
-    for value, status in (
-        (API_P95_WARNING_MS, "warning"),
-        (API_P95_CRITICAL_MS, "critical"),
+        _add_threshold(
+            figure,
+            value,
+            status,
+            row=2,
+            label=label,
+            annotation_position=position,
+        )
+    for value, status, label, position in (
+        (
+            API_P95_WARNING_MS,
+            "warning",
+            f"p95 {API_P95_WARNING_MS:,.0f} ms warning",
+            "top right",
+        ),
+        (
+            API_P95_CRITICAL_MS,
+            "critical",
+            f"p95 {API_P95_CRITICAL_MS:,.0f} ms critical",
+            "bottom right",
+        ),
     ):
         _add_threshold(
             figure,
@@ -250,6 +299,8 @@ def _add_thresholds(figure, include_infra=False):
             status,
             row=2,
             secondary_y=True,
+            label=label,
+            annotation_position=position,
         )
 
     for value, status in (
@@ -455,6 +506,9 @@ def _render_chart(analysis, changes, start_day, end_day):
         title_text="p95 latency (ms)",
         range=[0, api_p95_y_max],
         showgrid=False,
+        tickmode="linear",
+        tick0=0,
+        dtick=500,
         row=2,
         col=1,
         secondary_y=True,

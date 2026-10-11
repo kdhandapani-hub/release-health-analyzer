@@ -6,15 +6,18 @@ import streamlit as st
 from analysis.api_metrics import (
     failure_reason_breakdown,
     latency_percentiles,
+    p95_latency_over_time_by_service,
     pass_rate_by_endpoint,
     pass_rate_by_service,
     release_comparison,
 )
 from analysis.thresholds import (
     API_PASS_RATE_SLA_PCT,
+    API_P95_CRITICAL_MS,
     STATUS_COLORS,
     classify_api_pass_rate,
 )
+from views.time_axes import apply_time_axis
 
 
 CHART_LAYOUT = {
@@ -73,7 +76,48 @@ def _format_delta(value, suffix, precision=1):
     return f"{value:+,.{precision}f} {suffix}"
 
 
-def render_api_test_results(api):
+def _p95_latency_chart(api, start_day, end_day):
+    trend = p95_latency_over_time_by_service(api)
+    figure = px.line(
+        trend,
+        x="timestamp",
+        y="p95_latency_ms",
+        color="service",
+        markers=True,
+        labels={
+            "timestamp": "Time (UTC)",
+            "p95_latency_ms": "p95 latency (ms)",
+            "service": "Service",
+        },
+        title="p95 latency over time by service",
+    )
+    figure.add_hline(
+        y=API_P95_CRITICAL_MS,
+        line_color=STATUS_COLORS["critical"],
+        line_dash="dash",
+        line_width=2,
+        annotation_text=f"Critical {API_P95_CRITICAL_MS:,.0f} ms",
+        annotation_position="top left",
+        annotation_font_color=STATUS_COLORS["critical"],
+    )
+    figure.update_traces(
+        hovertemplate=(
+            "%{x|%b %d, %H:%M} UTC<br>Service: %{fullData.name}"
+            "<br>p95 latency: %{y:,.1f} ms<extra></extra>"
+        )
+    )
+    figure.update_layout(**CHART_LAYOUT, height=390, hovermode="x unified")
+    figure.update_xaxes(title="Time (UTC)")
+    figure.update_yaxes(
+        title="p95 latency (ms)",
+        rangemode="tozero",
+        gridcolor="rgba(148,163,184,0.14)",
+    )
+    apply_time_axis(figure, start_day, end_day)
+    return figure
+
+
+def render_api_test_results(api, start_day, end_day):
     if api.empty:
         st.info("No API test runs match these filters. Adjust the sidebar filters to see results.")
         return
@@ -102,26 +146,10 @@ def render_api_test_results(api):
     for column, row in zip(percentile_columns, percentiles.itertuples(index=False)):
         column.metric(f"{row.percentile} latency (ms)", f"{row.latency_ms:,.0f} ms")
 
-    latency_chart = px.bar(
-        percentiles,
-        x="percentile",
-        y="latency_ms",
-        text="latency_ms",
-        labels={"percentile": "Latency percentile", "latency_ms": "Latency (ms)"},
-        title="API latency percentiles",
+    st.plotly_chart(
+        _p95_latency_chart(api, start_day, end_day),
+        width="stretch",
     )
-    latency_chart.update_traces(
-        marker_color="#aa92ff",
-        texttemplate="%{y:,.0f} ms",
-        textposition="outside",
-        cliponaxis=False,
-    )
-    latency_chart.update_layout(**CHART_LAYOUT, height=340)
-    latency_chart.update_xaxes(title="Latency percentile", showgrid=False)
-    latency_chart.update_yaxes(
-        title="Latency (ms)", rangemode="tozero", gridcolor="rgba(148,163,184,0.14)"
-    )
-    st.plotly_chart(latency_chart, width="stretch")
 
     st.subheader("Failure reasons")
     if failures.empty:
@@ -155,10 +183,14 @@ def render_api_test_results(api):
             ),
         )
         failure_chart.update_layout(
-            **CHART_LAYOUT, height=max(300, len(failures) * 42)
+            **CHART_LAYOUT,
+            height=max(300, len(failures) * 42),
+            margin={"l": 8, "r": 100, "t": 55, "b": 12},
         )
         failure_chart.update_xaxes(
-            title="Failed runs (count)", gridcolor="rgba(148,163,184,0.14)"
+            title="Failed runs (count)",
+            range=[0, max(1, float(failures["failed_runs"].max()) * 1.35)],
+            gridcolor="rgba(148,163,184,0.14)",
         )
         failure_chart.update_yaxes(
             title="Failure reason", automargin=True, showgrid=False

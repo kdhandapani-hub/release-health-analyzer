@@ -14,6 +14,7 @@ RELEASE_COLUMNS = [
     "p95_latency_ms",
     "p95_delta_ms",
 ]
+P95_TIME_COLUMNS = ["timestamp", "service", "p95_latency_ms"]
 
 
 def _pass_rate_by(api: pd.DataFrame, dimension: str) -> pd.DataFrame:
@@ -52,6 +53,23 @@ def latency_percentiles(api: pd.DataFrame) -> pd.DataFrame:
             {"percentile": f"p{int(quantile * 100)}", "latency_ms": api["latency_ms"].quantile(quantile)}
             for quantile in (0.50, 0.95, 0.99)
         ]
+    )
+
+
+def p95_latency_over_time_by_service(api: pd.DataFrame) -> pd.DataFrame:
+    """Return hourly p95 latency in milliseconds, split by API service."""
+    if api.empty:
+        return pd.DataFrame(columns=P95_TIME_COLUMNS)
+
+    samples = api[["timestamp", "service", "latency_ms"]].copy()
+    samples["hour"] = pd.to_datetime(samples["timestamp"], utc=True).dt.floor("h")
+    result = (
+        samples.groupby(["hour", "service"], as_index=False, sort=True)
+        .agg(p95_latency_ms=("latency_ms", lambda values: values.quantile(0.95)))
+        .rename(columns={"hour": "timestamp"})
+    )
+    return result[P95_TIME_COLUMNS].sort_values(
+        ["service", "timestamp"], kind="stable"
     )
 
 

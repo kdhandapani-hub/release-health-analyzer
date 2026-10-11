@@ -15,6 +15,11 @@ from views.overview import render_overview
 from views.root_cause_correlation import render_root_cause_correlation
 
 
+def _all_hint(selected):
+    if not selected:
+        st.caption("All")
+
+
 st.set_page_config(
     page_title="Release Health Analyzer",
     page_icon="📊",
@@ -116,15 +121,17 @@ with st.sidebar:
     selected_services = st.multiselect(
         "Service",
         service_options,
-        default=service_options,
-        help="Applies to API services, consumer owners, and database connection users.",
+        default=[],
+        help="Applies to API services, consumer owners, and database connection users. Leave empty for all.",
     )
+    _all_hint(selected_services)
     selected_callers = st.multiselect(
         "Caller type",
         ["API", "Consumer"],
-        default=["API", "Consumer"],
-        help="Limits database connection users by API or consumer caller.",
+        default=[],
+        help="Limits database connection users by API or consumer caller. Leave empty for all.",
     )
+    _all_hint(selected_callers)
 
     event_ids = datasets["changes"]["change_id"].tolist()
     event_lookup = datasets["changes"].set_index("change_id")
@@ -136,22 +143,27 @@ with st.sidebar:
             f"{change_id} · {event_lookup.loc[change_id, 'change_type']} · "
             f"{event_lookup.loc[change_id, 'timestamp'].strftime('%b %d %H:%M')} UTC"
         ),
-        help="Selecting an event compares its following 24 hours with the preceding 24 hours.",
+        help="Selecting an event compares its following 24 hours with the preceding 24 hours. Leave empty for all.",
     )
+    _all_hint(selected_events)
     topic_options = sorted(datasets["kafka"]["topic"].dropna().unique().tolist())
     selected_topics = st.multiselect(
         "Topic",
         topic_options,
-        default=topic_options,
+        default=[],
+        help="Leave empty for all topics.",
     )
+    _all_hint(selected_topics)
     instance_options = sorted(
         datasets["db"]["db_instance"].dropna().unique().tolist()
     )
     selected_instances = st.multiselect(
         "DB instance",
         instance_options,
-        default=instance_options,
+        default=[],
+        help="Leave empty for all database instances.",
     )
+    _all_hint(selected_instances)
     if "infra" in datasets:
         infra_tier_options = sorted(
             datasets["infra"]["tier"].dropna().unique().tolist()
@@ -159,8 +171,10 @@ with st.sidebar:
         selected_infra_tiers = st.multiselect(
             "Infra tier",
             infra_tier_options,
-            default=infra_tier_options,
+            default=[],
+            help="Leave empty for all infrastructure tiers.",
         )
+        _all_hint(selected_infra_tiers)
     else:
         selected_infra_tiers = []
 
@@ -196,7 +210,7 @@ with tabs[0]:
     render_overview(current, baseline, start_day, end_day)
 
 with tabs[1]:
-    render_api_test_results(current["api"])
+    render_api_test_results(current["api"], start_day, end_day)
 
 with tabs[2]:
     render_event_stream_health(current["kafka"], start_day, end_day)
