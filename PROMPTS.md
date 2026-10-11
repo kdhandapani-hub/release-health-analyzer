@@ -162,3 +162,25 @@ Clarification on #9: the sequence display SHOULD change — order layers by firs
 
 ## Outcome
 Updated and verified the requested Oct 9 onset/critical sequence; DBPATCH-1009, the cleared release, Oct 9 infrastructure symptom, and Oct 5 isolated classification remain unchanged.
+
+## Prompt
+Build tab 7 (AI Insights) per SPEC.md section 4.2. An OPENAI_API_KEY is stored in Replit Secrets.
+
+1. Context builder (analysis/): from the current sidebar filters, build a compact JSON summary — NOT raw rows — containing: date range, the Root Cause Correlation result (likely trigger, onset/critical sequence, cleared changes, infra symptom/isolated classifications), plan-change detections, top KPIs per layer vs baseline, and top failure reasons. Keep it under ~3 KB.
+
+2. Rule-based narrative (always shown first, no API call): plain-English incident summary from that JSON with sections: What happened, Sequence, Likely root cause, Ruled out, Recommended next checks.
+
+3. OpenAI enhancement:
+   - Use the official openai Python SDK; read the key from OPENAI_API_KEY. If missing, show a friendly note on how to enable it.
+   - Model configurable via an LLM_MODEL env var; default to a current, low-cost OpenAI chat model.
+   - A "Generate AI summary" button (no automatic calls). One call per click, cache the result per filter selection, cap output at ~600 tokens, 30s timeout, graceful error handling with fallback to the rule-based narrative.
+   - System prompt: act as an SRE incident analyst; use ONLY the provided JSON; do not contradict the deterministic correlation result; say "insufficient data" rather than guessing; same section headings as the rule-based narrative.
+
+4. Transparency: an expander "What was sent to the model" showing the JSON payload, and a label "Rule-based" or "AI-generated (model name)".
+
+5. If no layer breaches in the range, say the period was healthy and list any isolated events.
+
+Never log or display the API key. Keep logic in analysis/ and the view in views.
+
+## Outcome
+Added and verified the filter-aware AI Insights tab with a sub-3 KB payload, deterministic-first summary, explicit cached OpenAI calls, and safe fallback; Oct 9/Oct 5 incident results remained unchanged.

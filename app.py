@@ -7,6 +7,7 @@ import streamlit as st
 
 from analysis.filters import current_and_baseline
 from data.loader import load_datasets
+from views.ai_insights import render_ai_insights
 from views.api_test_results import render_api_test_results
 from views.database_health import render_database_health
 from views.event_stream_health import render_event_stream_health
@@ -247,4 +248,11 @@ with tabs[root_cause_tab_index]:
     )
 
 with tabs[root_cause_tab_index + 1]:
-    st.info("Coming soon")
+    render_ai_insights(
+        current,
+        baseline,
+        datasets["changes"],
+        start_day,
+        end_day,
+        selections,
+    )
