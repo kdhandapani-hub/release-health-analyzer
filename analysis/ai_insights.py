@@ -6,6 +6,8 @@ import json
 import math
 import numbers
 import os
+import re
+from datetime import datetime
 
 import pandas as pd
 
@@ -22,15 +24,39 @@ COMPACT_CONTEXT_BYTES = 2900
 SYSTEM_PROMPT = (
     "You are an SRE incident analyst. Use ONLY the summarized JSON in the user "
     "message. Do not contradict the deterministic correlation result, including "
-    "its likely trigger, onset/critical sequence, cleared changes, or "
-    "infrastructure classifications. Do not guess; say 'insufficient data' "
-    "when evidence is missing. If no layer breaches are reported and layer "
-    "coverage is available, say the period was healthy and list any isolated "
-    "events. If coverage is missing, say so. Return plain English using these "
-    "section headings, in this order: What happened, Sequence, Likely root cause, "
-    "Ruled out, Recommended next checks."
+    "its likely trigger, warning onsets, critical start times, recoveries, "
+    "cleared changes, or infrastructure classifications. Follow field_definitions "
+    "literally: first_critical_utc is when critical begins, not when it ends. "
+    "Do not create or output a Sequence section or restate the cross-layer "
+    "timeline; the application inserts that section deterministically. Do not "
+    "guess; say 'insufficient data' when evidence is missing. Use a UTC timestamp "
+    "only when that exact timestamp appears in the JSON. If no layer breaches are "
+    "reported and layer coverage is available, say the period was healthy and "
+    "list any isolated events. If coverage is missing, say so. Return plain "
+    "English under exactly these headings, in this order: What happened, Likely "
+    "root cause, Ruled out, Recommended next checks."
 )
 
+_ISO_UTC_RE = re.compile(
+    r"\b(?P<date>\d{4}-\d{2}-\d{2})(?:\s+at\s+|\s+|T)"
+    r"(?P<time>\d{1,2}:\d{2})\s*UTC\b",
+    re.IGNORECASE,
+)
+_MONTH_UTC_RE = re.compile(
+    r"\b(?P<month>Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|"
+    r"Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)\s+(?P<day>\d{1,2})"
+    r"(?:,?\s+(?P<year>\d{4}))?(?:\s+at)?\s+"
+    r"(?P<time>\d{1,2}:\d{2})\s*UTC\b",
+    re.IGNORECASE,
+)
+_TIME_UTC_RE = re.compile(r"\b(?P<time>\d{1,2}:\d{2})\s*UTC\b", re.IGNORECASE)
+_SOURCE_UTC_RE = re.compile(r"\b\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC\b")
+_AI_SECTION_RE = re.compile(
+    r"(?im)^\s*(?:#{1,6}\s*)?(?:\d+[.)]\s*)?(?:\*\*)?"
+    r"(What happened|Sequence|Likely root cause|Ruled out|"
+    r"Recommended next checks)(?:\*\*)?\s*:?\s*$"
+)
 
 def configured_model() -> str:
     """Return the requested model name, or the current low-cost default."""
@@ -74,6 +100,17 @@ def _timestamp(value):
         return pd.Timestamp(value).strftime("%Y-%m-%d %H:%M UTC")
     except (TypeError, ValueError):
         return None
+
+
+def _recovered_timestamp(lane: pd.DataFrame, onset, first_critical):
+    """Return the first healthy sample after the initial breach, if observed."""
+    if lane.empty:
+        return None
+    breach_time = first_critical if first_critical is not None else onset
+    healthy = lane.loc[
+        (lane["timestamp"] > breach_time) & lane["status"].eq("healthy")
+    ].sort_values("timestamp", kind="stable")
+    return healthy.iloc[0]["timestamp"] if not healthy.empty else None
 
 
 def _filtered_values(selections, key):
@@ -193,6 +230,22 @@ def build_insights_context(
     )
 
     trigger = root["trigger"]
+    sequence = []
+    for item in root["sequence"]:
+        sequence.append(
+            {
+                "layer": item["layer"],
+                "onset_warning_utc": _timestamp(item["onset_timestamp"]),
+                "first_critical_utc": _timestamp(item["critical_timestamp"]),
+                "recovered_utc": _timestamp(
+                    _recovered_timestamp(
+                        root["lanes"][item["layer"]],
+                        item["onset_timestamp"],
+                        item["critical_timestamp"],
+                    )
+                ),
+            }
+        )
     root_summary = {
         "likely_trigger": (
             {
@@ -212,14 +265,7 @@ def build_insights_context(
             if root["first_breach"]
             else None
         ),
-        "sequence": [
-            {
-                "layer": item["layer"],
-                "onset_utc": _timestamp(item["onset_timestamp"]),
-                "critical_utc": _timestamp(item["critical_timestamp"]),
-            }
-            for item in root["sequence"]
-        ],
+        "sequence": sequence,
         "cleared_changes": [
             {
                 "change_id": _short_text(item.get("change_id"), 48),
@@ -288,6 +334,18 @@ def build_insights_context(
 
     lanes = root["lanes"]
     context = {
+        "field_definitions": {
+            "onset_warning_utc": (
+                "First warning-or-critical sample in the layer's degradation sequence."
+            ),
+            "first_critical_utc": (
+                "First sample when that layer reached critical; null if never reached."
+            ),
+            "recovered_utc": (
+                "First healthy sample after critical, or after warning onset if no "
+                "critical sample exists; null if not observed."
+            ),
+        },
         "date_range_utc": {
             "start": str(start_day),
             "end": str(end_day),
